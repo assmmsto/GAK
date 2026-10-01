@@ -13,8 +13,9 @@
     "test:ui": "node --import tsx tests/ui.e2e.tsx",
     "test:security": "node --import tsx tests/security.check.tsx",
     "test:crypto": "node --import tsx tests/crypto.check.tsx",
+    "test:modules": "node --import tsx tests/modules.check.tsx",
     "test:live": "node --import tsx tests/live-security.check.tsx",
-    "test": "node --import tsx tests/security.check.tsx && node --import tsx tests/crypto.check.tsx",
+    "test": "node --import tsx tests/security.check.tsx && node --import tsx tests/crypto.check.tsx && node --import tsx tests/modules.check.tsx",
     "lint": "tsc -b"
   },
   "dependencies": {

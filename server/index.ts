@@ -9,10 +9,16 @@ import { Router } from './router.js';
 import { readProvidersYaml, writeProvidersYaml, testConnection, fetchModels, validateId } from './provider-manager.js';
 import { probeModel } from './probe.js';
 import type { ProbeResult } from './probe.js';
-import { securityHeaders, rateLimit, sanitizeErrorMessage, validateBaseUrl } from './security.js';
+import { securityHeaders, rateLimit, sanitizeErrorMessage } from './security.js';
+import { loadCatalog, catalogEntry, deriveEnvName, maskImportLine, parseImportText } from './services/catalog.js';
+import { upsertEnvVar } from './services/env-store.js';
+import { guardBaseUrl } from './services/url-guard.js';
+import {
+  callerKeyOf, anthropicToOpenAIMessages, anthropicToolsToOpenAI,
+  anthropicToolChoiceToOpenAI, openAIMessageToAnthropicBlocks
+} from './routes/anthropic.js';
 import { join } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
-import { parse as yamlParse } from 'yaml';
+import { existsSync } from 'node:fs';
 import { request } from 'undici';
 
 const config = loadConfig();
@@ -43,8 +49,6 @@ if (IS_NETWORK_EXPOSED && !ADMIN_TOKEN) {
 // أصول CORS المسموحة (مفصولة بفواصل) — الافتراضي: تطوير محلي فقط
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001')
   .split(',').map(s => s.trim()).filter(Boolean);
-const ENV_PATH = join(process.cwd(), '.env');
-
 // حدود المعدل: قابلة للضبط بلا تعديل كود — لأن «الحد المناسب» يختلف بين
 // مستخدم يشغّل وكيل برمجة (مهلة عالية) وآخر يجرب نموذجاً يدوياً.
 const RATE_V1_PER_MIN = Number(process.env.RATE_LIMIT_V1_PER_MIN) > 0 ? Number(process.env.RATE_LIMIT_V1_PER_MIN) : 300;
@@ -84,83 +88,6 @@ if (ADMIN_TOKEN) {
 }
 
 // ===== أدوات مساعدة =====
-const CATALOG_PATH = join(process.cwd(), 'server', 'catalog.yaml');
-
-type CatalogEntry = {
-  id: string; name: string; baseUrl: string;
-  apiKeyEnv?: string | null; tier?: number; free?: boolean;
-  keyless?: boolean; signupUrl?: string | null;
-};
-let catalogCache: { providers: CatalogEntry[]; keyPatterns: Array<{ prefix: string; provider: string | null }> } | null = null;
-let catalogMtime = 0;
-
-function loadCatalog() {
-  // نُبطل الذاكرة إذا تغيّر الملف — وإلا فمزود جديد في الكتالوج لا يُعرَف بلا إعادة تشغيل
-  try {
-    const mt = existsSync(CATALOG_PATH) ? statSync(CATALOG_PATH).mtimeMs : 0;
-    if (catalogCache && mt === catalogMtime) return catalogCache;
-    catalogMtime = mt;
-  } catch { /* نتجاهل ونُعيد القراءة */ }
-  try {
-    const raw = existsSync(CATALOG_PATH) ? readFileSync(CATALOG_PATH, 'utf8') : '';
-    const j = raw ? (yamlParse(raw) as any) : {};
-    catalogCache = {
-      providers: (j.providers || []) as CatalogEntry[],
-      keyPatterns: (j.keyPatterns || []) as any[]
-    };
-  } catch {
-    catalogCache = catalogCache || { providers: [], keyPatterns: [] };
-  }
-  return catalogCache;
-}
-
-// تخمين المزوّد من بادئة المفتاح — «الصق المفتاح فقط»
-function detectProvider(key: string): string | null {
-  const k = (key || '').trim();
-  if (!k) return null;
-  for (const p of loadCatalog().keyPatterns) {
-    if (p?.prefix && k.startsWith(p.prefix)) return p.provider || null;
-  }
-  return null;
-}
-
-function catalogEntry(id: string): CatalogEntry | undefined {
-  return loadCatalog().providers.find(p => p.id === id);
-}
-
-function deriveEnvName(id: string) {
-  return `${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
-}
-
-// ===== حماية عناوين المزودات (مضاد SSRF) =====
-// كل مسار يستقبل baseUrl من المستخدم يمُرّ من هنا. بدونها يستطيع أي مدخل
-// جعل الخادم يطلب خدمة داخلية (بيانات وصفية سحابية، SSH محلي، شبكة داخلية).
-const ALLOW_PRIVATE_HOSTS = process.env.ALLOW_PRIVATE_HOSTS === '1';
-
-function guardBaseUrl(raw: unknown): { ok: true; url: string } | { ok: false; error: string } {
-  return validateBaseUrl(raw, { allowPrivate: ALLOW_PRIVATE_HOSTS });
-}
-
-// نكتب/نحدّث/نحذف مفتاحاً في .env (للإقلاع والتنظيف فقط — المفاتيح تعيش في قاعدة البيانات)
-function upsertEnvVar(name: string, value: string | null) {
-  const lines = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8').split(/\r?\n/) : [];
-  const out: string[] = [];
-  let found = false;
-  for (const line of lines) {
-    const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=/);
-    if (m && m[1] === name) {
-      found = true;
-      if (value !== null) out.push(`${name}=${value}`);
-      continue; // value === null → نحذف السطر
-    }
-    out.push(line);
-  }
-  if (!found && value !== null) out.push(`${name}=${value}`);
-  while (out.length && out[out.length - 1].trim() === '') out.pop();
-  writeFileSync(ENV_PATH, out.join('\n') + '\n', 'utf8');
-  if (value === null) delete process.env[name];
-  else process.env[name] = value;
-}
 
 // نعيد بناء مزود في الموجّه بعد تغيير بياناته (المفتاح يُقرأ من process.env الجديد)
 function reloadProvider(entry: any) {
@@ -262,99 +189,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 // ===== /v1/messages — صيغة Anthropic (لتكامل Claude Code وأدواته) =====
 // نحوّل الطلب إلى صيغة OpenAI، نمرّره على نفس الموجّه، ثم نُعيد الصيغة الأصلية.
-function callerKeyOf(req: any): string | null {
-  const auth = (req.headers.authorization || '') as string;
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  const xk = req.headers['x-api-key'];
-  return typeof xk === 'string' && xk ? xk : null;
-}
-
-function anthropicToOpenAIMessages(body: any): any[] {
-  const out: any[] = [];
-  if (typeof body.system === 'string' && body.system.trim()) out.push({ role: 'system', content: body.system });
-  else if (Array.isArray(body.system)) {
-    const txt = body.system.map((b: any) => (typeof b === 'string' ? b : b?.text || '')).join('\n').trim();
-    if (txt) out.push({ role: 'system', content: txt });
-  }
-  for (const m of (body.messages || [])) {
-    const role = m?.role === 'assistant' ? 'assistant' : 'user';
-    const blocks = Array.isArray(m?.content) ? m.content : [{ type: 'text', text: String(m?.content ?? '') }];
-    const textParts: string[] = [];
-    const toolCalls: any[] = [];
-    const toolResults: any[] = [];
-    for (const b of blocks) {
-      if (typeof b === 'string') { textParts.push(b); continue; }
-      if (b?.type === 'text') textParts.push(b.text || '');
-      else if (b?.type === 'tool_use') {
-        // استدعاء أداة من المساعد → tool_calls بصيغة OpenAI
-        toolCalls.push({
-          id: b.id, type: 'function',
-          function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) }
-        });
-      } else if (b?.type === 'tool_result') {
-        const c = typeof b.content === 'string' ? b.content
-          : Array.isArray(b.content) ? b.content.map((x: any) => (typeof x === 'string' ? x : x?.text || '')).join('\n')
-            : JSON.stringify(b.content ?? '');
-        toolResults.push({ role: 'tool', tool_call_id: b.tool_use_id, content: c });
-      }
-    }
-    // نتائج الأدوات تُرسل كرسائل tool مستقلة
-    if (toolResults.length) { out.push(...toolResults); continue; }
-    const msg: any = { role, content: textParts.join('\n') };
-    if (toolCalls.length) {
-      msg.tool_calls = toolCalls;
-      if (!msg.content) msg.content = null;
-    }
-    out.push(msg);
-  }
-  return out;
-}
-
-// أدوات Anthropic → أدوات OpenAI
-function anthropicToolsToOpenAI(tools: any): any[] | undefined {
-  if (!Array.isArray(tools) || !tools.length) return undefined;
-  return tools.map((t: any) => ({
-    type: 'function',
-    function: {
-      name: t?.name,
-      description: t?.description || '',
-      parameters: t?.input_schema || { type: 'object', properties: {} }
-    }
-  }));
-}
-
-function anthropicToolChoiceToOpenAI(tc: any): any {
-  if (!tc || typeof tc !== 'object') return undefined;
-  if (tc.type === 'auto') return 'auto';
-  if (tc.type === 'any') return 'required';
-  if (tc.type === 'tool' && tc.name) return { type: 'function', function: { name: tc.name } };
-  return undefined;
-}
-
-// رد OpenAI → كتل محتوى بصيغة Anthropic
-function openAIMessageToAnthropicBlocks(msg: any): { blocks: any[]; stopReason: string } {
-  const blocks: any[] = [];
-  const text = msg?.content;
-  if (typeof text === 'string' && text) blocks.push({ type: 'text', text });
-  else if (Array.isArray(text)) {
-    const joined = text.map((p: any) => p?.text || '').join('');
-    if (joined) blocks.push({ type: 'text', text: joined });
-  }
-  const calls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
-  for (const tc of calls) {
-    let input: any = {};
-    try { input = JSON.parse(tc?.function?.arguments || '{}'); } catch { input = {}; }
-    blocks.push({
-      type: 'tool_use',
-      id: tc?.id || ('toolu_' + Math.random().toString(36).slice(2, 14)),
-      name: tc?.function?.name || 'tool',
-      input
-    });
-  }
-  if (!blocks.length) blocks.push({ type: 'text', text: '' });
-  return { blocks, stopReason: calls.length ? 'tool_use' : 'end_turn' };
-}
-
+// دوال التحويل نفسها في routes/anthropic.ts (نقية بلا حالة).
 app.post('/v1/messages', async (req, res) => {
   const body = req.body || {};
   if (!Array.isArray(body.messages) || !body.messages.length) {
@@ -1434,59 +1269,10 @@ app.delete('/api/providers/:id/keys/:keyId', async (req, res) => {
 });
 
 // ===== الاستيراد الجماعي =====
-// نقنّع الأسطر في الاستجابة — السطر قد يكون مفتاحاً كاملاً
-function maskImportLine(line: string): string {
-  const s = String(line || '');
-  if (s.length <= 14) return s;
-  return s.slice(0, 6) + '…' + s.slice(-4);
-}
-
-// يقبل: سطر مفتاح وحده · "مزود=مفتاح" · "مزود: مفتاح" · JSON (حتى المنسّق على أسطر)
-function parseImportText(text: string): Array<{ provider: string | null; key: string; raw: string }> {
-  const out: Array<{ provider: string | null; key: string; raw: string }> = [];
-  const src = String(text || '').trim();
-  if (src.startsWith('{') || src.startsWith('[')) {
-    try {
-      const j = JSON.parse(src);
-      for (const item of (Array.isArray(j) ? j : [j])) {
-        const k = String(item?.key || item?.apiKey || '').trim();
-        if (k) out.push({ provider: item?.provider ? String(item.provider).trim() : detectProvider(k), key: k, raw: 'JSON' });
-      }
-      if (out.length) return out;
-    } catch { /* ليس JSON صالحاً → نكمل تحليلاً سطرياً */ }
-  }
-  const knownIds = new Set<string>([
-    ...loadCatalog().providers.map(p => p.id),
-    ...router.getProviderIds()
-  ]);
-  // شكل المفتاح: بادئة معروفة أو طول كافٍ — يمنع تقسيم مفتاح يحوي = أو :
-  const looksLikeKey = (s: string) =>
-    /^(sk[-_]|apx_|AIza|gsk_|xai-|hf_|nvapi-|pplx-|cpk_|fn_)/.test(s) || s.length >= 32;
-
-  for (const rawLine of src.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const m = line.match(/^([A-Za-z0-9._-]{2,40})\s*[=:]\s*(\S+)$/);
-    if (m) {
-      const left = m[1];
-      const right = m[2];
-      // «مزود=مفتاح» إذا كان الطرف الأيسر معرّفاً معروفاً، أو الطرف الأيمن يبدو مفتاحاً
-      // والطرف الأيسر لا يبدو مفتاحاً (وإلا فالمفتاح نفسه يحوي = أو :)
-      const isProviderForm = knownIds.has(left.toLowerCase()) ||
-        (looksLikeKey(right) && !looksLikeKey(left));
-      if (isProviderForm) {
-        out.push({ provider: left.trim(), key: right.trim(), raw: line });
-        continue;
-      }
-    }
-    out.push({ provider: detectProvider(line), key: line, raw: line });
-  }
-  return out;
-}
-
+// التحليل (parseImportText) والتقنيع (maskImportLine) في services/catalog.ts.
 app.post('/api/providers/import', async (req, res) => {
   const body = req.body || {};
-  const entries = Array.isArray(body.entries) ? body.entries : parseImportText(body.text || '');
+  const entries = Array.isArray(body.entries) ? body.entries : parseImportText(body.text || '', router.getProviderIds());
   if (!entries.length) return res.status(400).json({ error: 'لا يوجد شيء للاستيراد' });
   const dryRun = !!body.dryRun;
   const results: any[] = [];
