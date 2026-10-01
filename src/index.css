@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #0b0c10;
+    --surface: #12141a;
+    --surface-2: #1a1d26;
+    --line: #232733;
+    --line-hover: #2e3342;
+    --ink: #dfe3ec;
+    --ink-muted: #9aa3b2;
+    --ink-dim: #5f6878;
+    --primary: #6d7bd6;
+    --primary-2: #4f9fcf;
+    --success: #4fae7d;
+    --warning: #c79545;
+    --error: #c96a6a;
+  }
+
+  html, body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  * { box-sizing: border-box; }
+
+  ::selection { background: rgba(109, 123, 214, 0.25); color: #fff; }
+}
+
+@layer components {
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card:hover {
+    border-color: var(--line-hover);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--line);
+    background-color: var(--surface);
+    color: var(--ink);
+    transition: background-color 0.12s, border-color 0.12s;
+  }
+  .btn:hover {
+    background-color: var(--surface-2);
+    border-color: var(--line-hover);
+  }
+  .btn:active { transform: scale(0.99); }
+  .btn-primary {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-primary:hover {
+    background-color: #5f6dc7;
+    border-color: #5f6dc7;
+  }
+  .btn-danger {
+    border-color: rgba(201, 106, 106, 0.4);
+    color: var(--error);
+  }
+  .btn-danger:hover {
+    background-color: rgba(201, 106, 106, 0.1);
+    border-color: rgba(201, 106, 106, 0.6);
+  }
+  .btn-ghost {
+    border-color: transparent;
+    background-color: transparent;
+  }
+  .btn-ghost:hover { background-color: var(--surface-2); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .input {
+    width: 100%;
+    background-color: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    transition: border-color 0.12s;
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--primary);
+  }
+  .input::placeholder { color: var(--ink-dim); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background-color: var(--surface-2);
+    color: var(--ink-muted);
+  }
+  .badge-primary { background-color: rgba(109,123,214,0.14); color: #9aa7e8; border: 1px solid rgba(109,123,214,0.3); }
+  .badge-success { background-color: rgba(79,174,125,0.14); color: #7fc7a3; border: 1px solid rgba(79,174,125,0.3); }
+  .badge-warning { background-color: rgba(199,149,69,0.14); color: #dcb277; border: 1px solid rgba(199,149,69,0.3); }
+  .badge-error   { background-color: rgba(201,106,106,0.14); color: #de8f8f; border: 1px solid rgba(201,106,106,0.3); }
+
+  .glass {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+  }
+
+  .stat-card {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .heading-accent { color: var(--primary); }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-hover); }
+
+/* أنيميشن وظيفي فقط (loading spinner) — بدون توهج ولا تدرجات */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 2px solid var(--ink-dim);
+  border-top-color: var(--primary);
+  border-radius: 9999px;
+  animation: spin 0.6s linear infinite;
+}
+.spinner-sm { width: 12px; height: 12px; border-width: 2px; }
+
+[data-tooltip] { position: relative; }
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+  color: var(--ink);
+}

@@ -1,0 +1,311 @@
+# كتالوج المزودات — مصدر واحد للحقيقة.
+# لإضافة مصدر جديد: أضف كتلة هنا، وسيظهر تلقائياً في نافذة الإضافة وفي الاستيراد الجماعي.
+# لا تُخزَّن أي مفاتيح هنا — المفاتيح في قاعدة البيانات أو .env فقط.
+#
+# tier: 1 = أعلى أولوية (مدفوع/أفضل جودة) → 4 = شبكة أمان مجانية
+# free: true تعني أن الحصة المجانية معتبرة
+
+providers:
+  - id: openai
+    name: OpenAI
+    baseUrl: https://api.openai.com/v1
+    apiKeyEnv: OPENAI_API_KEY
+    tier: 1
+    free: false
+    signupUrl: https://platform.openai.com/api-keys
+  - id: xai
+    name: xAI (Grok)
+    baseUrl: https://api.x.ai/v1
+    apiKeyEnv: XAI_API_KEY
+    tier: 1
+    free: false
+    signupUrl: https://console.x.ai
+  - id: ollama
+    name: Ollama (Local)
+    baseUrl: http://localhost:11434/v1
+    apiKeyEnv: null
+    tier: 1
+    free: true
+    signupUrl: https://ollama.com/download
+  - id: perplexity
+    name: Perplexity
+    baseUrl: https://api.perplexity.ai
+    apiKeyEnv: PERPLEXITY_API_KEY
+    tier: 2
+    free: false
+    signupUrl: https://www.perplexity.ai/settings/api
+  - id: openrouter
+    name: OpenRouter
+    baseUrl: https://openrouter.ai/api/v1
+    apiKeyEnv: OPENROUTER_API_KEY
+    tier: 2
+    free: true
+    signupUrl: https://openrouter.ai/keys
+  - id: deepseek
+    name: DeepSeek
+    baseUrl: https://api.deepseek.com/v1
+    apiKeyEnv: DEEPSEEK_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://platform.deepseek.com/api_keys
+  - id: zai
+    name: Z.AI (GLM)
+    baseUrl: https://api.z.ai/v1
+    apiKeyEnv: ZAI_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://z.ai/manage-apikey
+  - id: google-ai
+    name: Google AI Studio
+    baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+    apiKeyEnv: GEMINI_API_KEY
+    tier: 3
+    free: true
+    signupUrl: https://aistudio.google.com/apikey
+  - id: moonshot
+    name: Moonshot (Kimi)
+    baseUrl: https://api.moonshot.cn/v1
+    apiKeyEnv: MOONSHOT_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://platform.moonshot.cn/console/api-keys
+  - id: dashscope
+    name: Alibaba DashScope (Qwen)
+    baseUrl: https://dashscope.aliyuncs.com/compatible-mode/v1
+    apiKeyEnv: DASHSCOPE_API_KEY
+    tier: 3
+    free: true
+    signupUrl: https://bailian.console.aliyun.com
+  - id: zhipu
+    name: Zhipu (BigModel)
+    baseUrl: https://open.bigmodel.cn/api/paas/v4
+    apiKeyEnv: ZHIPU_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://open.bigmodel.cn/usercenter/apikeys
+  - id: volcengine
+    name: Volcengine Ark (Doubao)
+    baseUrl: https://ark.cn-beijing.volces.com/api/v3
+    apiKeyEnv: ARK_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://console.volcengine.com/ark
+  - id: qianfan
+    name: Baidu Qianfan
+    baseUrl: https://qianfan.baidubce.com/v2
+    apiKeyEnv: QIANFAN_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://console.bce.baidu.com/iam/#/iam/apikey/list
+  - id: minimax
+    name: MiniMax
+    baseUrl: https://api.minimax.chat/v1
+    apiKeyEnv: MINIMAX_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://platform.minimaxi.com/user-center/basic-information/interface-key
+  - id: stepfun
+    name: StepFun
+    baseUrl: https://api.stepfun.com/v1
+    apiKeyEnv: STEPFUN_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://platform.stepfun.com/interface-key
+  - id: yi
+    name: 01.AI (Yi)
+    baseUrl: https://api.lingyiwanwu.com/v1
+    apiKeyEnv: YI_API_KEY
+    tier: 3
+    free: false
+    signupUrl: https://platform.lingyiwanwu.com/apikeys
+  - id: github-models
+    name: GitHub Models
+    baseUrl: https://models.inference.ai.azure.com
+    apiKeyEnv: GITHUB_TOKEN
+    tier: 3
+    free: true
+    signupUrl: https://github.com/settings/tokens
+  - id: groq
+    name: Groq Cloud
+    baseUrl: https://api.groq.com/openai/v1
+    apiKeyEnv: GROQ_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://console.groq.com/keys
+  - id: mistral
+    name: Mistral AI
+    baseUrl: https://api.mistral.ai/v1
+    apiKeyEnv: MISTRAL_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://console.mistral.ai/api-keys/
+  - id: together
+    name: Together AI
+    baseUrl: https://api.together.ai/v1
+    apiKeyEnv: TOGETHER_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://api.together.ai/settings/api-keys
+  - id: fireworks
+    name: Fireworks AI
+    baseUrl: https://api.fireworks.ai/inference/v1
+    apiKeyEnv: FIREWORKS_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://fireworks.ai/account/api-keys
+  - id: cerebras
+    name: Cerebras
+    baseUrl: https://api.cerebras.ai/v1
+    apiKeyEnv: CEREBRAS_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://cloud.cerebras.ai
+  - id: cohere
+    name: Cohere
+    baseUrl: https://api.cohere.com/v1
+    apiKeyEnv: COHERE_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://dashboard.cohere.com/api-keys
+  - id: sambanova
+    name: SambaNova
+    baseUrl: https://api.sambanova.ai/v1
+    apiKeyEnv: SAMBANOVA_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://cloud.sambanova.ai/apis
+  - id: siliconflow
+    name: SiliconFlow
+    baseUrl: https://api.siliconflow.cn/v1
+    apiKeyEnv: SILICONFLOW_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://cloud.siliconflow.cn/account/ak
+  - id: modelscope
+    name: ModelScope
+    baseUrl: https://api-inference.modelscope.cn/v1
+    apiKeyEnv: MODELSCOPE_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://modelscope.cn/my/myaccesstoken
+  - id: deepinfra
+    name: DeepInfra
+    baseUrl: https://api.deepinfra.com/v1/openai
+    apiKeyEnv: DEEPINFRA_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://deepinfra.com/dash/api_keys
+  - id: nvidia-nim
+    name: NVIDIA NIM
+    baseUrl: https://integrate.api.nvidia.com/v1
+    apiKeyEnv: NVIDIA_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://build.nvidia.com/settings/api-keys
+  - id: novita
+    name: Novita AI
+    baseUrl: https://api.novita.ai/v3/openai
+    apiKeyEnv: NOVITA_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://novita.ai/settings/key-management
+  - id: hyperbolic
+    name: Hyperbolic
+    baseUrl: https://api.hyperbolic.xyz/v1
+    apiKeyEnv: HYPERBOLIC_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://app.hyperbolic.xyz/settings
+  - id: nebius
+    name: Nebius AI Studio
+    baseUrl: https://api.studio.nebius.com/v1
+    apiKeyEnv: NEBIUS_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://studio.nebius.com/settings/api-keys
+  - id: featherless
+    name: Featherless AI
+    baseUrl: https://api.featherless.ai/v1
+    apiKeyEnv: FEATHERLESS_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://featherless.ai/account/api-keys
+  - id: chutes
+    name: Chutes AI
+    baseUrl: https://llm.chutes.ai/v1
+    apiKeyEnv: CHUTES_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://chutes.ai/app/settings
+  - id: pollinations
+    name: Pollinations (keyless)
+    baseUrl: https://text.pollinations.ai/openai
+    apiKeyEnv: null
+    tier: 4
+    free: true
+    keyless: true
+    signupUrl: https://pollinations.ai
+  - id: seekai
+    name: SeekAI
+    baseUrl: https://seekai.cc/v1
+    apiKeyEnv: SEEKAI_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://seekai.cc
+  - id: xkiro
+    name: XKiro
+    baseUrl: https://api.xkiro.com/v1
+    apiKeyEnv: XKIRO_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://api.xkiro.com
+  - id: apmix
+    name: apmix
+    baseUrl: https://api.apmix.ai/v1
+    apiKeyEnv: APMIX_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://apmix.ai/register
+  - id: bluesminds
+    name: bluesminds
+    baseUrl: https://api.bluesminds.com/v1
+    apiKeyEnv: BLUESMINDS_API_KEY
+    tier: 4
+    free: true
+    signupUrl: https://bluesminds.com/register
+
+# بصمات المفاتيح — للتعرّف على المزوّد من شكل المفتاح عند لصقه وحده.
+# البصمات الغامضة (sk-) لا تُدرج لأنها مشتركة بين عدة مزودات.
+keyPatterns:
+  - prefix: gsk_
+    provider: groq
+  - prefix: sk-or-v1-
+    provider: openrouter
+  - prefix: sk-or-
+    provider: openrouter
+  - prefix: AIza
+    provider: google-ai
+  - prefix: xai-
+    provider: xai
+  - prefix: pplx-
+    provider: perplexity
+  - prefix: sk-proj-
+    provider: openai
+  - prefix: nvapi-
+    provider: nvidia-nim
+  - prefix: hf_
+    provider: siliconflow
+  - prefix: apx_
+    provider: apmix
+  - prefix: sk-xt-
+    provider: xkiro
+  - prefix: sk_
+    provider: inceptionlabs
+  - prefix: sk-cW7
+    provider: bluesminds
+  - prefix: cpk_
+    provider: chutes
+  - prefix: fn_
+    provider: fireworks
+  - prefix: sk-ant-
+    provider: null

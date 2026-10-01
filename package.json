@@ -1,0 +1,49 @@
+{
+  "name": "ai-gateway-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node --import tsx server/index.ts",
+    "test:ui": "node --import tsx tests/ui.e2e.tsx",
+    "test:security": "node --import tsx tests/security.check.tsx",
+    "test:crypto": "node --import tsx tests/crypto.check.tsx",
+    "test:live": "node --import tsx tests/live-security.check.tsx",
+    "test": "node --import tsx tests/security.check.tsx && node --import tsx tests/crypto.check.tsx",
+    "lint": "tsc -b"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "@tanstack/react-query": "^5.62.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "undici": "^7.2.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "jsdom": "^30.1.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

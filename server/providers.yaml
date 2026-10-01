@@ -1,0 +1,259 @@
+providers:
+  - id: apmix
+    name: apmix
+    baseUrl: https://api.apmix.ai/v1
+    apiKeyEnv: APMIX_API_KEY
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - grok-4.7-free
+      - deepseek-v4-flash-free
+    signupUrl: https://apmix.ai/register
+  - id: pollinations
+    name: Pollinations (Free)
+    baseUrl: https://text.pollinations.ai/openai
+    apiKeyEnv: null
+    format: openai
+    tier: 4
+    enabled: true
+    models:
+      - openai-fast
+    signupUrl: https://pollinations.ai/login
+  - id: google-ai
+    name: Google AI Studio
+    baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+    apiKeyEnv: GEMINI_API_KEY
+    format: openai
+    tier: 3
+    enabled: true
+    models:
+      - gemma-4-26b-a4b-it
+      - gemini-flash-latest
+      - gemini-flash-lite-latest
+      - gemini-3-flash-preview
+      - gemini-3.1-flash-lite-preview
+      - gemini-3.1-flash-lite
+      - gemini-3.5-flash-lite
+      - gemini-3.6-flash
+      - gemini-robotics-er-2-preview
+    signupUrl: https://aistudio.google.com/apikey
+  - id: inceptionlabs
+    name: Inception Labs (Mercury)
+    baseUrl: https://api.inceptionlabs.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models:
+      - mercury-2
+      - mercury-2.5
+    apiKeyEnv: INCEPTIONLABS_API_KEY
+  - id: together
+    name: Together AI
+    baseUrl: https://api.together.ai/v1
+    apiKeyEnv: TOGETHER_API_KEY
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    signupUrl: https://api.together.ai/settings/api-keys
+  - id: chutes
+    name: Chutes AI
+    baseUrl: https://llm.chutes.ai/v1
+    apiKeyEnv: CHUTES_API_KEY
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    signupUrl: https://chutes.ai/app/settings
+  - id: seekai
+    name: SeekAI
+    baseUrl: https://seekai.cc/v1
+    apiKeyEnv: SEEKAI_API_KEY
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    signupUrl: https://seekai.cc
+  - id: nvidia-nim
+    name: NVIDIA NIM
+    baseUrl: https://integrate.api.nvidia.com/v1
+    apiKeyEnv: NVIDIA_API_KEY
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    signupUrl: https://build.nvidia.com/settings/api-keys
+  - id: api1
+    name: api
+    baseUrl: https://api.b.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: API1_API_KEY
+  - id: anymodel-org
+    name: anymodel.org
+    baseUrl: https://anymodel.org/v1
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - ag/gemini-3.7-flash-high
+      - ag/gemini-3.7-flash-medium
+      - ag/gemini-3.7-flash-low
+      - ag/gemini-3.6-flash-medium
+      - ag/gemini-pro-agent
+      - ag/gemini-3.1-pro-low
+      - ag/claude-sonnet-4-6
+      - ag/gpt-oss-120b-medium
+      - ag/gemini-3-flash
+      - ag/gemini-2.5-flash
+      - ag/gemini-2.5-flash-lite
+      - ag/gemini-3.1-flash-lite-preview
+      - cx/gpt-6-astra
+      - cx/gpt-6-sol
+      - cx/gpt-6-sol-review
+      - cx/gpt-6-luna
+      - cx/gpt-6-luna-review
+      - cx/gpt-5.6-sol
+      - cx/gpt-5.6-terra
+      - cx/gpt-5.6-terra-review
+      - cx/gpt-5.6-luna
+      - cx/gpt-5.6-luna-review
+      - cx/gpt-5.5-review
+      - cx/gpt-image-2
+      - am/nemotron-3-ultra-550b-a55b
+      - am/laguna-xs-2.1
+      - am/llama-3.2-11b-vision-instruct
+      - am/riva-translate-4b-instruct-v2
+      - am/nemotron-3.5-content-safety
+      - xai/grok-4.7
+      - xai/grok-4.6
+      - xai/grok-4.5
+      - xai/grok-4.3
+      - xai/grok-build-0.1
+      - xai/grok-4.20-0309-reasoning
+      - xai/grok-4.20-0309-non-reasoning
+      - xai/grok-4.20-multi-agent-0309
+      - kmc/kimi-for-coding
+      - kmc/k3
+      - glm/glm-5.3
+      - glm/glm-5.3-flash
+      - glm/glm-5.2
+      - glm/glm-5.1
+      - glm/glm-5
+      - glm/glm-4.7
+      - glm/glm-4.6v
+      - cc/claude-opus-5-5
+      - cc/claude-opus-5
+      - cc/claude-sonnet-5
+      - cc/claude-opus-4-8
+      - cc/claude-opus-4-7
+      - cc/claude-opus-4-6
+      - cc/claude-sonnet-4-6
+      - cc/claude-haiku-4-5-20251001
+      - cc/claude-opus-4-5-20251101
+      - cc/claude-sonnet-4-5-20250929
+      - ds/deepseek-v4-pro
+      - ds/deepseek-v4-flash
+      - qwen/qwen3.8-max
+      - qwen/qwen3.7-max
+      - qwen/qwen3.7-plus
+      - am/free
+    apiKeyEnv: ANYMODEL_ORG_API_KEY
+  - id: evolink
+    name: evolink
+    baseUrl: https://api.evolink.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: EVOLINK_API_KEY
+  - id: apinex
+    name: apinex
+    baseUrl: https://api.apinex.bond/v1
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - deepseek-v4-flash
+    apiKeyEnv: APINEX_API_KEY
+  - id: inference
+    name: inference
+    baseUrl: https://inference.dahl.global/v1
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - MiniMaxAI/MiniMax-M2.7
+      - deepseek-ai/DeepSeek-V4-Flash-0731
+      - zai-org/GLM-5.3-Flash
+    apiKeyEnv: INFERENCE_API_KEY
+  - id: claude-sonnet-5
+    name: claude-sonnet-5
+    baseUrl: https://cleanapis.com/v1
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - muse-spark-1.1
+      - gemma-2-2b
+      - gpt-5.6-sol
+      - claude-opus-5
+      - claude-fable-5
+      - claude-mythos-preview
+      - kimi-k3
+      - glm-5.3
+      - deepseek-v4-pro-0813
+      - qwen3.8-max
+      - gpt-5.6-terra
+      - claude-opus-4.8
+      - gemini-3.7-flash
+      - claude-sonnet-5
+      - gpt-5.5
+      - grok-4.5
+      - deepseek-v4-flash-0731
+      - grok-4.6
+      - seed-2.1-pro
+      - glm-5.2
+      - qwen3.8-27b
+      - gpt-5.6-luna
+      - qwen3.7-max
+      - claude-opus-4.6
+      - gpt-5.5-pro
+      - claude-opus-4.7
+      - gemini-3.6-flash
+      - kimi-k2.6
+      - seed-2.1-turbo
+      - gemini-3.1-pro
+      - deepseek-v4-pro-max
+      - claude-fable-5.1
+      - claude-opus-5.5
+    apiKeyEnv: CLAUDE_SONNET_5_API_KEY
+  - id: ashna
+    name: ashna
+    baseUrl: https://api.ashna.ai/v1/api
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - auto
+      - gpt-6-sol
+      - gpt-6-luna
+      - gpt-5.5
+      - gpt-5.4-thinking
+      - gpt-5.4
+      - gpt-5.2-codex
+      - gpt-4.1-nano
+      - gpt-4.1-mini
+      - gpt-4o
+      - gpt-o1
+      - deepseek-v4-pro
+      - deepseek-v4.1-flash
+      - kimi-k2.5-thinking
+    apiKeyEnv: ASHNA_API_KEY
+routing:
+  maxRetries: 3
+  timeoutMs: 180000
+  maxConcurrent: 20
