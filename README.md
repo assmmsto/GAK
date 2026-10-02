@@ -271,6 +271,55 @@ rejected are hidden from `/v1/models` and skipped during routing, so a dead mode
 Settings are persisted in the database. Trimming never touches the last three tool outputs, so the
 recent context stays intact.
 
+## الوكلاء (إشراف ذاتي التشغيل)
+
+الخادم يراقب نفسه ويصلح نفسه: يجلب المفاتيح من مصادرها، يدوّرها، يعزل ما مات —
+ويسجّل **كل** تغيير في سجل تدقيق. قراراته مكتوبة كقواعد محدَّدة، لا استدلال.
+
+### هرمية المصادر (الأصغر يفوز)
+
+| الأولوية | المصدر | التهيئة |
+|---|---|---|
+| 10 | HashiCorp Vault (KV v2) | `VAULT_ADDR` + `VAULT_TOKEN` |
+| 20 | Doppler | `DOPPLER_TOKEN` |
+| 30 | 1Password Connect | `OP_CONNECT_HOST` + `OP_CONNECT_TOKEN` + `OP_VAULT_ID` + `OP_ITEM_ID` |
+| 40 | ملف محلي | `data/secrets.json` — `{"groq":"gsk_...","openrouter":["sk-or-a","sk-or-b"]}` |
+| 50 | متغيّرات `.env` | أي `*_API_KEY` (يُقرأ من قائمة الكتالوج) |
+| 90 | مفتاح يدوي من الواجهة | **لا تمسّه المزامنة إطلاقاً** |
+
+### ثلاث قواعد لا تُخترق
+1. **لا حذف تلقائي أبداً** — المفتاح المسحوب يُعطَّل ويُسجَّل، والاسترجاع سطر واحد.
+2. **المفتاح اليدوي مقدّس** — لا تسحبه المزامنة ولا تعطّله.
+3. **فشل مصدر لا يسحب شيئاً** — انقطاع Vault في السحابة لا يُطفئ مفاتيح الإنتاج.
+
+كل مفتاح له **قاطع دائرة**: `closed` (يعمل) · `open` (معطّل بسبب مكتوب) ·
+`half-open` (انتهت المهلة، يُجرَّب). والعزل يتصاعد أسّياً حتى 15 دقيقة.
+
+### المسارات (محمية بـ`ADMIN_TOKEN`، ولا تُعيد أي سرّ)
+
+| المسار | الوظيفة |
+|---|---|
+| `GET /api/agents/status` | حالة المشرف + دوائر المفاتيح + كل المصادر وحالاتها |
+| `POST /api/agents/sync` | مزامنة فورية (نفس دورة الخمس دقائق) |
+| `POST /api/agents/rotate` | دورة تدوير فورية |
+| `GET /api/agents/keys` | دوائر المفاتيح تفصيلاً (بصمات فقط) |
+| `GET /api/agents/audit` | سجل التدقيق: من غيّر ماذا ومتى ولماذا |
+
+### الإعداد
+```bash
+# فعّل مصدراً واحداً على الأقل (الباقي يُتجاهل تلقائياً)
+echo "VAULT_ADDR=https://vault.internal:8200" >> .env
+echo "VAULT_TOKEN=..." >> .env
+
+AGENTS_ENABLED=0          # تعطيل كامل للوكلاء (فحص يدوي فقط)
+AGENT_SYNC_INTERVAL_MS=300000   # كل 5 دقائق
+```
+
+> كل التوكنات تُقرأ من البيئة، ولا تُطبع ولا تُسجَّل. المصادر غير المُهيَّأة
+> لا تُستدعى ولا تُحسب فشلاً — يظهر تقريرها `configured: false`.
+
+---
+
 ## Providers Included
 
 | ID | Tier | Auth | Enabled by default |

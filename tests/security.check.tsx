@@ -163,6 +163,36 @@ check('.env.example يوثّق ADMIN_TOKEN', /ADMIN_TOKEN=/.test(envExample));
 check('.env.example يوثّق HOST', /^HOST=/m.test(envExample));
 
 // ============================================================
+// ============================================================
+// 6) المعالج العام خارج كتلة dist (D-08)
+// ============================================================
+// الخلل: كان `app.use((err,…))` داخل `if (existsSync(DIST_DIR)) {` بقوس زائد،
+// فيتوقّف عن العمل عند غياب dist/ فيعود Express لصفحة HTML فيها مسارات الملفات.
+group('معالج الأخطاء خارج كتلة dist');
+const distIdx = indexSrc.indexOf('if (existsSync(DIST_DIR)) {');
+const handlerIdx = indexSrc.indexOf('app.use((err:');
+check('كتلة dist موجودة', distIdx >= 0);
+check('المعالج العام موجود', handlerIdx > distIdx);
+// مسح الأقواس لتحديد نهاية كتلة dist بدقة
+let depth = 0;
+let blockEnd = -1;
+const openLen = 'if (existsSync(DIST_DIR)) {'.length;
+for (let i = distIdx + openLen; i < indexSrc.length; i++) {
+  const ch = indexSrc[i];
+  if (ch === '{') depth++;
+  else if (ch === '}') {
+    if (depth === 0) { blockEnd = i; break; }
+    depth--;
+  }
+}
+check('نهاية كتلة dist محسوبة', blockEnd > 0, `blockEnd=${blockEnd}`);
+check(
+  'المعالج مسجَّل خارج كتلة dist',
+  blockEnd > 0 && handlerIdx > blockEnd,
+  `handler=${handlerIdx} blockEnd=${blockEnd}`
+);
+
+// ============================================================
 console.log('\n' + '='.repeat(46));
 console.log(`نتيجة الحراسة: ${passed} نجاح / ${failures.length} فشل`);
 if (failures.length) {

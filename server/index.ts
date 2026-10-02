@@ -13,6 +13,9 @@ import { securityHeaders, rateLimit, sanitizeErrorMessage } from './security.js'
 import { loadCatalog, catalogEntry, deriveEnvName, maskImportLine, parseImportText } from './services/catalog.js';
 import { upsertEnvVar } from './services/env-store.js';
 import { guardBaseUrl } from './services/url-guard.js';
+import { AgentScheduler } from './agents/scheduler.js';
+import { KeySyncEngine } from './agents/key-sync.js';
+import { RotationAgent } from './agents/rotation.js';
 import {
   callerKeyOf, anthropicToOpenAIMessages, anthropicToolsToOpenAI,
   anthropicToolChoiceToOpenAI, openAIMessageToAnthropicBlocks
@@ -24,6 +27,19 @@ import { request } from 'undici';
 const config = loadConfig();
 const db = new EventDB();
 const router = new Router(config, db);
+
+// ===== الوكلاء: إشراف ذاتي التشغيل =====
+// كل وكيل يستقبل اعتماداته صراحةً (لا حالة مشتركة خفية)، والمشرف وحده يملك التوقيت.
+const AGENTS_ENABLED = process.env.AGENTS_ENABLED !== '0';
+const numOr = (v: string | undefined, fallback: number) => (Number(v) > 0 ? Number(v) : fallback);
+// +100ms لكل دورة: يمنع اصطدام دورتين على الدقيقة نفسها (بطء ترتيب عشوائي)
+const SYNC_INTERVAL_MS = numOr(process.env.AGENT_SYNC_INTERVAL_MS, 5 * 60_000);
+const ROTATION_INTERVAL_MS = numOr(process.env.AGENT_ROTATION_INTERVAL_MS, 60_100);
+const HEALTH_INTERVAL_MS = numOr(process.env.AGENT_HEALTH_INTERVAL_MS, 60_100);
+const DRIFT_INTERVAL_MS = numOr(process.env.AGENT_DRIFT_INTERVAL_MS, 60_100);
+const scheduler = new AgentScheduler(numOr(process.env.AGENT_TICK_MS, 15_000));
+const keySync = new KeySyncEngine(db, router, (e) => broadcast(e));
+const rotation = new RotationAgent(db, router, (e) => broadcast(e));
 const startTime = Date.now();
 
 // ===== إعدادات الشبكة والأمان =====
@@ -555,7 +571,10 @@ const AUTO_PROBE_INTERVAL_MS = 60 * 60 * 1000; // ساعة
 // الموجّه يُطلق الحجب عند TTL (24 ساعة) احتياطاً، وهذه الدورة تُعيد الفحص
 // فعلياً كل 6 ساعات فتكتشف عودة المزود قبل انتهاء الحجب بكثير.
 const PROBE_STALE_MS = 6 * 60 * 60 * 1000; // 6 ساعات
-setInterval(async () => {
+scheduler.register({
+  name: 'auto-probe',
+  intervalMs: AUTO_PROBE_INTERVAL_MS,
+  run: async () => {
   try {
     const all = await db.getProbes();
     const now = Date.now();
@@ -564,7 +583,7 @@ setInterval(async () => {
       if (r.status === 'rejected') return (now - Number(r.checked_at || 0)) > PROBE_STALE_MS;
       return false;
     });
-    if (!candidate.length) return;
+    if (!candidate.length) return { ok: true, detail: { candidates: 0 } };
     console.log(`[auto-probe] يعيد فحص ${candidate.length} نموذج (مؤقتة أو منتهية الصلاحية)`);
     let recovered = 0;
     for (const r of candidate) {
@@ -582,8 +601,12 @@ setInterval(async () => {
     }
   } catch (e: any) {
     console.error('[auto-probe] failed:', e.message);
+    // نعيد الفشل للمشرف (تسجيل + لوحة حالة) بدل ابتلاعه هنا
+    return { ok: false, error: e?.message || 'auto-probe failed' };
   }
-}, AUTO_PROBE_INTERVAL_MS).unref();
+  return { ok: true };
+  }
+});
 
 function getPublicBaseUrl(): string {
   const port = process.env.PORT || 3001;
@@ -605,9 +628,11 @@ async function captureDriftSnapshot() {
     lastSnapshot = { ts: Date.now(), models: await countAvailableModels(), upProviders: up, authErrors };
   } catch {}
 }
-setInterval(captureDriftSnapshot, 60_000).unref();
-// أول لقطة بعد 5 ثواني (يعطي وقت للإقلاع)
-setTimeout(captureDriftSnapshot, 5000).unref();
+scheduler.register({
+  name: 'drift',
+  intervalMs: DRIFT_INTERVAL_MS,
+  run: async () => { await captureDriftSnapshot(); return { ok: true }; }
+});
 
 app.get('/api/status', async (_req, res) => {
   const since = Date.now() - 86400000;
@@ -1133,8 +1158,52 @@ async function healthLoop() {
   }
   broadcast({ type: 'health-all' });
 }
-setInterval(healthLoop, 60_000);
-healthLoop();
+scheduler.register({
+  name: 'health',
+  intervalMs: HEALTH_INTERVAL_MS,
+  run: async () => { await healthLoop(); return { ok: true }; }
+});
+
+// ===== مزامنة المفاتيح الهرمية (تلقائية) =====
+scheduler.register({
+  name: 'key-sync',
+  intervalMs: SYNC_INTERVAL_MS,
+  run: async () => {
+    const report = await keySync.reconcile();
+    const changed = report.counts.added + report.counts.reactivated +
+      report.counts.authority + report.counts.withdrawn;
+    return {
+      ok: report.counts.error === 0,
+      error: report.counts.error ? `${report.counts.error} خطأ في المصالحة` : undefined,
+      detail: {
+        changed, sources: report.sources.length, durationMs: report.durationMs,
+        desired: report.desiredKeys, current: report.currentKeys
+      }
+    };
+  }
+});
+
+// ===== التدوير: قواطع دائرة + عزل المزوّد بلا مفاتيح =====
+scheduler.register({
+  name: 'rotation',
+  intervalMs: ROTATION_INTERVAL_MS,
+  run: async () => {
+    const report = await rotation.tick();
+    return {
+      ok: true,
+      detail: { ...report.counts, isolated: report.isolatedProviders.length, durationMs: report.durationMs }
+    };
+  }
+});
+
+if (AGENTS_ENABLED) {
+  scheduler.start();
+  // تشغيل أولي فوري (كان موجوداً قبل الوكلاء لفحص الصحة) + مزامنة أولى
+  void scheduler.runNow('health');
+  void scheduler.runNow('key-sync');
+} else {
+  console.log('⏸ الوكلاء معطّلة (AGENTS_ENABLED=0) — الفحص اليدوي فقط');
+}
 
 const PORT = process.env.PORT || 3001;
 server.listen(Number(PORT), HOST, () => {
@@ -1496,14 +1565,90 @@ app.delete('/api/providers/:id', async (req, res) => {
   }
 });
 
+// ===== واجهة الوكلاء (إشراف ذاتي التشغيل) =====
+// أمان: كلها تحت /api المحمي بـ ADMIN_TOKEN، ولا تُعيد أي قيمة سرّية —
+// تقرير حالة فقط (معرّف المصدر، عدد المفاتيح، أخطاء معقّمة، بصمات).
+app.get('/api/agents/status', async (_req, res) => {
+  try {
+    await db.ready;
+    const [circuits, sources] = await Promise.all([rotation.inspect(), keySync.sourcesStatus()]);
+    res.json({
+      scheduler: scheduler.status(),
+      rotation: {
+        total: circuits.length,
+        closed: circuits.filter(c => c.state === 'closed').length,
+        open: circuits.filter(c => c.state === 'open').length,
+        halfOpen: circuits.filter(c => c.state === 'half-open').length,
+        needsResync: circuits.filter(c => c.needsResync).length
+      },
+      sources
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
+  }
+});
+
+app.post('/api/agents/sync', async (_req, res) => {
+  try {
+    const report = await keySync.reconcile();
+    res.json({
+      ok: report.counts.error === 0,
+      durationMs: report.durationMs,
+      counts: report.counts,
+      desiredKeys: report.desiredKeys,
+      currentKeys: report.currentKeys,
+      sources: report.sources,
+      actions: report.actions.slice(0, 100)
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
+  }
+});
+
+app.post('/api/agents/rotate', async (_req, res) => {
+  try {
+    const report = await rotation.tick();
+    res.json({
+      ok: true, durationMs: report.durationMs, counts: report.counts,
+      isolatedProviders: report.isolatedProviders
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
+  }
+});
+
+// دوائر المفاتيح بالتفصيل — بصمات فقط، بلا أي قيمة مفتاح
+app.get('/api/agents/keys', async (_req, res) => {
+  try {
+    await db.ready;
+    res.json({ keys: await rotation.inspect() });
+  } catch (e: any) {
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
+  }
+});
+
+// سجل التدقيق: من غيّر ماذا ومتى ولماذا (بلا أسرار)
+app.get('/api/agents/audit', async (req, res) => {
+  try {
+    await db.ready;
+    const provider = typeof req.query.provider === 'string' && req.query.provider ? req.query.provider : undefined;
+    res.json({ rotations: await db.listRotations({ limit: Number(req.query.limit) || 50, provider }) });
+  } catch (e: any) {
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
+  }
+});
+
 // ===== تقديم واجهة البناء (dist) — يسمح بالنشر بعملية واحدة =====
 const DIST_DIR = join(process.cwd(), 'dist');
 if (existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
   // أي مسار ليس API → نرجّع index.html ليتولّى الـ SPA التوجيه
   app.get(/^\/(?!api|v1|ws).*/, (_req, res) => res.sendFile(join(DIST_DIR, 'index.html')));
+}
 
 // ===== معالج أخطاء عام (آخر السلسلة) =====
+// **خارج كتلة dist عمداً**: كان داخلها، فتوقّف عن العمل عند غياب dist/ فعاد
+// Express لصفحة HTML فيها مسارات الملفات بدل JSON. تسجيلها: DECISIONS.md D-08.
 // لماذا: بلا هذا، أي خطأ تحليل JSON أو خطأ غير ملتقط يُعيد صفحة HTML فيها
 // مسار الملفات وقائمة استدعاءات (رأيناه فعلاً: `E:\ai-gateway-web\node_modules\…`).
 // ذلك يكشف بنية السيرفر للعميل، وهو أسوأ من الخطأ نفسه. هنا نُعيد JSON نظيفاً
@@ -1525,5 +1670,3 @@ app.use((err: any, _req: any, res: any, next: any) => {
   console.error('[unhandled]', safe);
   res.status(500).json({ error: { message: 'خطأ داخلي في البوابة', type: 'internal_error' } });
 });
-
-}

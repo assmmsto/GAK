@@ -10,6 +10,23 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = join(__dirname, '..', 'data', 'gateway.db');
 
+/**
+ * مصدر المفتاح — يحدد من أي طبقة جاء، وأيها يملك السلطة عند التعارض.
+ * vault(10) > doppler(20) > onepassword(30) > file(40) > env(50) > manual(90)
+ *manual = أدخله المستخدم من الواجهة: المزامنة الآلية لا تسحبه ولا تعطّله.
+ */
+export type ProviderKeySource = 'vault' | 'doppler' | 'onepassword' | 'file' | 'env' | 'manual';
+
+/** أولوية السلطة لكل مصدر (الأصغر أعلى). manual = 90 فلا يتقدّم عليه مصدر آلي. */
+export const SOURCE_PRIORITY: Record<ProviderKeySource, number> = {
+  vault: 10,
+  doppler: 20,
+  onepassword: 30,
+  file: 40,
+  env: 50,
+  manual: 90
+};
+
 export class EventDB {
   private db!: Client;
   // الوصول للعميل من برام (للاستعلامات المخصصة)
@@ -63,8 +80,53 @@ export class EventDB {
     await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_provider_keys_status ON provider_keys(status)`);
     // ----- إعدادات عامة (توفير الرموز وغيرها) -----
     await this.db.execute(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    // ----- مصدر كل مفتاح: من أين جاء (لمصالحته الهرمية) -----
+    // 'manual' = أدخله المستخدم بنفسه → لا تمسّه المزامنة الآلية أبداً.
+    await this._ensureColumn('provider_keys', 'source', `ALTER TABLE provider_keys ADD COLUMN source TEXT`);
+    // ----- سجل تدقيق كل تغيير مفتاح (إضافة/سحب/إعادة تفعيل/تغيّر سلطة) -----
+    // لا يحتوي أي قيمة سرّية — بصمات فقط.
+    await this.db.execute(`CREATE TABLE IF NOT EXISTS key_rotations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts INTEGER NOT NULL,
+      provider TEXT NOT NULL,
+      key_id INTEGER,
+      key_fp TEXT,
+      action TEXT NOT NULL,
+      reason TEXT,
+      from_source TEXT,
+      to_source TEXT,
+      ok INTEGER DEFAULT 1,
+      detail TEXT
+    )`);
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_key_rotations_ts ON key_rotations(ts DESC)`);
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_key_rotations_provider ON key_rotations(provider)`);
+    // ----- آخر حالة جلب لكل مصدر (تشخيص: أي مصدر يُجيب وأي لا) -----
+    await this.db.execute(`CREATE TABLE IF NOT EXISTS secret_sources (
+      id TEXT PRIMARY KEY,
+      label TEXT,
+      priority INTEGER,
+      configured INTEGER DEFAULT 0,
+      ok INTEGER,
+      entries INTEGER DEFAULT 0,
+      error TEXT,
+      latency_ms INTEGER,
+      last_sync INTEGER
+    )`);
     await this._migrateProbeAuthErrors();
     await this._migrateSecretStorageInternal();
+  }
+
+  /** يضيف عموداً إن لم يكن موجوداً (idempotent) — أساس كل ترقية لاحقة. */
+  private async _ensureColumn(table: string, column: string, alterSql: string): Promise<boolean> {
+    try {
+      const cols = await this.db.execute(`PRAGMA table_info(${table})`);
+      if ((cols.rows as any[]).some((c: any) => c.name === column)) return false;
+      await this.db.execute(alterSql);
+      return true;
+    } catch (e: any) {
+      console.warn(`⚠ تعذّر.ensure عمود ${table}.${column}:`, e?.message || e);
+      return false;
+    }
   }
 
   /**
@@ -254,19 +316,96 @@ export class EventDB {
     });
   }
 
-  async addProviderKey(provider: string, key: string, label?: string | null): Promise<any> {
+  async addProviderKey(provider: string, key: string, label?: string | null, source?: ProviderKeySource): Promise<any> {
     await this.ready;
     const encKey = encryptSecret(key);
     const fp = keyFingerprint(key);
+    // COALESCE على التعارض: من لم يحدّد مصدراً لا يحطّم مصدراً أعلى منه مسجَّلاً مسبقاً.
     const r = await this.db.execute({
-      sql: `INSERT INTO provider_keys (provider, key, key_fp, label, ts) VALUES (?, ?, ?, ?, ?)
+      sql: `INSERT INTO provider_keys (provider, key, key_fp, label, ts, source) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider, key_fp) DO UPDATE SET
-              enabled = 1, status = 'unknown', blocked_until = NULL, last_error = NULL
+              enabled = 1, status = 'unknown', blocked_until = NULL, last_error = NULL,
+              source = COALESCE(?, source)
             RETURNING *`,
-      args: [provider, encKey, fp, label ?? null, Date.now()]
+      args: [provider, encKey, fp, label ?? null, Date.now(), source ?? 'manual', source ?? null]
     });
     const row = r.rows[0] as any;
     return row ? { ...row, key } : row;
+  }
+
+  /**
+   * صفوف المفاتيح الخام (بلا فك تشفير) للمصالحة.
+   * لماذا: المزامنة تقارن **بصمات** لا قيماً — لا داعي لفك تشفير كل مفتاح في كل دورة.
+   */
+  async listProviderKeysRaw(provider?: string): Promise<any[]> {
+    await this.ready;
+    const r = provider
+      ? await this.db.execute({ sql: `SELECT id, provider, key_fp, label, enabled, status, blocked_until, requests, source FROM provider_keys WHERE provider = ? ORDER BY id`, args: [provider] })
+      : await this.db.execute(`SELECT id, provider, key_fp, label, enabled, status, blocked_until, requests, source FROM provider_keys ORDER BY provider, id`);
+    return r.rows as any[];
+  }
+
+  /** تسجيل تدقيق. لا تُمرَّر هنا أي قيمة سرّية — البصمة تكفي. */
+  async logRotation(e: {
+    provider: string; keyId?: number | null; keyFp?: string | null;
+    action: string; reason?: string | null;
+    fromSource?: ProviderKeySource | null; toSource?: ProviderKeySource | null;
+    ok?: boolean; detail?: string | null;
+  }): Promise<void> {
+    await this.ready;
+    await this.db.execute({
+      sql: `INSERT INTO key_rotations (ts, provider, key_id, key_fp, action, reason, from_source, to_source, ok, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        Date.now(), e.provider, e.keyId ?? null, e.keyFp ?? null, e.action,
+        e.reason ?? null, e.fromSource ?? null, e.toSource ?? null,
+        e.ok === false ? 0 : 1, (e.detail ?? '').slice(0, 300)
+      ]
+    });
+  }
+
+  async listRotations(opts: { limit?: number; provider?: string } = {}): Promise<any[]> {
+    await this.ready;
+    const limit = Math.min(Math.max(1, Number(opts.limit) || 50), 500);
+    const r = opts.provider
+      ? await this.db.execute({ sql: `SELECT * FROM key_rotations WHERE provider = ? ORDER BY ts DESC LIMIT ?`, args: [opts.provider, limit] })
+      : await this.db.execute({ sql: `SELECT * FROM key_rotations ORDER BY ts DESC LIMIT ?`, args: [limit] });
+    return r.rows as any[];
+  }
+
+  /** حالة آخر جلب لكل مصدر — تشخيص بلا أسرار. */
+  async upsertSourceState(s: {
+    id: string; label: string; priority: number; configured: boolean;
+    ok: boolean | null; entries: number; error?: string | null; latencyMs?: number | null;
+  }): Promise<void> {
+    await this.ready;
+    await this.db.execute({
+      sql: `INSERT INTO secret_sources (id, label, priority, configured, ok, entries, error, latency_ms, last_sync)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              label = excluded.label, priority = excluded.priority,
+              configured = excluded.configured, ok = excluded.ok, entries = excluded.entries,
+              error = excluded.error, latency_ms = excluded.latency_ms, last_sync = excluded.last_sync`,
+      args: [
+        s.id, s.label, s.priority, s.configured ? 1 : 0,
+        s.ok === null ? null : (s.ok ? 1 : 0), s.entries,
+        (s.error ?? null), s.latencyMs ?? null, Date.now()
+      ]
+    });
+  }
+
+  async listSourceStates(): Promise<any[]> {
+    await this.ready;
+    const r = await this.db.execute(`SELECT * FROM secret_sources ORDER BY priority ASC`);
+    return (r.rows as any[]).map(row => ({
+      id: row.id, label: row.label, priority: Number(row.priority),
+      configured: !!row.configured,
+      ok: row.ok === null || row.ok === undefined ? null : !!row.ok,
+      entries: Number(row.entries || 0),
+      error: row.error ?? null,
+      latencyMs: row.latency_ms === null || row.latency_ms === undefined ? null : Number(row.latency_ms),
+      lastSync: row.last_sync ?? null
+    }));
   }
 
   async updateProviderKey(id: number, patch: {
