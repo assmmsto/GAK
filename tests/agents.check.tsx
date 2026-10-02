@@ -267,6 +267,53 @@ group('11) ترتيب المفاتيح فعّال في الموجّه');
   check('قائمة المفاتيح صحيحة بلا درجات', solo.length === 2, `n=${solo.length}`);
 }
 
+// ============================================================
+// 12) صحة القياسات + سياسة الاحتفاظ + تحويل الإعدادات (S4–S7)
+// ============================================================
+group('12) إحصاءات الطلبات صحيحة دلالياً');
+{
+  // أحداث من أنواع مختلفة: العدّ القديم كان يخلط فحص الصحة بنسبة نجاح الطلبات ⇒ نسبة skewed
+  await db.logEvent('chat.success', { status: 'success' });
+  await db.logEvent('chat.error', { status: 'error' });
+  await db.logEvent('health.ok', { status: 'ok' });          // لا تُعدّ طلباً
+  await db.logEvent('probe.bulk', { status: 'success' });     // ولا حتى نجاحاً
+  const st: any = await db.getStats(Date.now() - 60_000);
+  check('total = أحداث chat فقط', Number(st.total) === 2, `total=${st.total}`);
+  check('success = 1', Number(st.success) === 1, `success=${st.success}`);
+  check('error = 1', Number(st.error) === 1, `error=${st.error}`);
+}
+
+group('13) سياسة الاحتفاظ (لا نموّ بلا حدّ)');
+{
+  // نزرع أحداثاً قديمة يدوياً (قيمة ts في الماضي)
+  const old = Date.now() - 90 * 86400000;
+  for (let i = 0; i < 3; i++) {
+    await db.client.execute({ sql: `INSERT INTO events (ts, type, status) VALUES (?, ?, ?)`, args: [old, 'chat.success', 'success'] });
+  }
+  await db.client.execute({ sql: `INSERT INTO events (ts, type, status) VALUES (?, ?, ?)`, args: [Date.now(), 'chat.success', 'success'] });
+  const pruned = await db.prune({ eventsDays: 30, usageDays: 90, rotationsKeep: 5000 });
+  check('حُذفت الأحداث القديمة', pruned.events >= 3, `deleted=${pruned.events}`);
+  const recent = await db.client.execute({ sql: `SELECT COUNT(*) n FROM events WHERE ts > ?`, args: [old] });
+  check('بقيت الأحداث الحديثة', Number((recent.rows[0] as any).n) >= 1, `left=${(recent.rows[0] as any).n}`);
+  check('prune يرجع عدّاداً', typeof pruned.events === 'number' && typeof pruned.rotations === 'number');
+}
+
+group('14) تحويل الإعدادات من HTTP بأمان');
+{
+  const r2b = new Router({ providers: [], routing: { maxRetries: 1, timeoutMs: 1000, maxConcurrent: 2 } } as any, db);
+  r2b.applySettings({ cacheEnabled: 'false' as any });
+  check('النص "false" يُقرأ false', r2b.currentSettings().cacheEnabled === false,
+    String(r2b.currentSettings().cacheEnabled));
+  r2b.applySettings({ cacheEnabled: 'true' as any });
+  check('النص "true" يُقرأ true', r2b.currentSettings().cacheEnabled === true);
+  r2b.applySettings({ cacheTtlSec: -5 });
+  check('الرقم السالب يُصفَّر', r2b.currentSettings().cacheTtlSec === 0, String(r2b.currentSettings().cacheTtlSec));
+  r2b.applySettings({ cacheTtlSec: 'abc' as any });
+  check('النص غير الرقمي يُصفَّر', r2b.currentSettings().cacheTtlSec === 0);
+  r2b.applySettings({ maxToolChars: 1234.9 as any });
+  check('الأعداد تُقرَّب لأعداد صحيحة', r2b.currentSettings().maxToolChars === 1234, String(r2b.currentSettings().maxToolChars));
+}
+
 try { await db.close(); } catch { /* تجاهل */ }
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* قفل ويندوز */ }
 

@@ -227,6 +227,7 @@ group('/v1 مغلق عند غياب المفاتيح (fail-closed)');
 check('لا فرع "افتح" باقى', !/keysExistCache\s*===\s*false\)\s*return\s+next\(\)/.test(indexSrc));
 check('الغياب يرفض بـ503 صريح', /gateway_misconfigured/.test(indexSrc));
 
+// ============================================================
 console.log('\n' + '='.repeat(46));
 console.log(`نتيجة الحراسة: ${passed} نجاح / ${failures.length} فشل`);
 if (failures.length) {

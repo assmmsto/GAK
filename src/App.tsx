@@ -11,13 +11,15 @@ import { LogsTab } from './components/LogsTab';
 import { PlaygroundTab } from './components/PlaygroundTab';
 import { SortTab } from './components/SortTab';
 import { HealthTab } from './components/HealthTab';
+import { AgentsTab } from './components/AgentsTab';
 import { EndpointBanner } from './components/EndpointBanner';
 import { FlaskConical } from 'lucide-react';
 
-type Tab = 'health' | 'providers' | 'sort' | 'usage' | 'logs' | 'playground';
+type Tab = 'health' | 'agents' | 'providers' | 'sort' | 'usage' | 'logs' | 'playground';
 
 const TABS: { id: Tab; label: string; icon: any; description: string }[] = [
   { id: 'health', label: 'الحالة', icon: ShieldCheck, description: 'أي مفتاح ميت؟' },
+  { id: 'agents', label: 'الوكلاء', icon: Activity, description: 'المزامنة والتدوير التلقائي' },
   { id: 'providers', label: 'Providers', icon: Cpu, description: 'Manage AI providers' },
   { id: 'sort', label: 'فرز النماذج', icon: FlaskConical, description: 'اللي يشتغل vs المرفوض' },
   { id: 'usage', label: 'Usage', icon: Activity, description: 'Token consumption' },
@@ -173,6 +175,7 @@ export default function App() {
       {/* Content */}
       <main className="">
         {tab === 'health' && <HealthTab />}
+      {tab === 'agents' && <AgentsTab showToast={showToast} />}
       {tab === 'providers' && <ProvidersTab onToast={showToast} />}
         {tab === 'sort' && <SortTab onToast={showToast} />}
         {tab === 'usage' && <UsageTab />}

@@ -286,13 +286,44 @@ export class EventDB {
     return r.rows;
   }
 
+  /**
+   * إحصاءات الطلبات — **بعدّ حسب نوع الحدث لا عمود status**.
+   * لماذا: أحداث الصحة والفحص تكتب `status='ok'` لا `'success'` ⇒ الإحصاء القديم
+   * كان يحسبها «لا نجاح ولا فشل» ويضخّم المقام ⇒ نسبة النجاح في اللوحة خاطئة.
+   * كما أن مزج فحص الصحة بنسبة نجاح الطلبات مخطأ دلالياً.
+   */
   async getStats(sinceMs: number) {
     await this.ready;
     const r = await this.db.execute({
-      sql: `SELECT COUNT(*) as total, SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error FROM events WHERE ts > ?`,
+      sql: `SELECT COUNT(*) as total,
+                   SUM(CASE WHEN type = 'chat.success' THEN 1 ELSE 0 END) as success,
+                   SUM(CASE WHEN type IN ('chat.error','chat.all_failed','chat.stream_error') THEN 1 ELSE 0 END) as error
+            FROM events WHERE ts > ? AND type LIKE 'chat%'`,
       args: [sinceMs]
     });
     return r.rows[0] || { total: 0, success: 0, error: 0 };
+  }
+
+  /**
+   * تنظيف السجلات القديمة (سياسة احتفاظ صريحة).
+   * لماذا: `health.ok` كل 60ث × 15 مزوّداً ≈ 21,600 صف/يوم بلا سقف ⇒ القاعدة تنمو
+   * بلا حدّ. سياسة الاحتفاظ مكتوبة في هذا الملف وحده (لا أحد يخمّن مدة أخرى).
+   */
+  async prune(opts: { eventsDays?: number; usageDays?: number; rotationsKeep?: number } = {}) {
+    await this.ready;
+    const now = Date.now();
+    const eventsDays = Math.max(1, Number(opts.eventsDays) || 30);
+    const usageDays = Math.max(1, Number(opts.usageDays) || 90);
+    const rotationsKeep = Math.max(100, Number(opts.rotationsKeep) || 5000);
+    const count = (r: any) => Number(r?.rowsAffected || 0);
+
+    const events = count(await this.db.execute({ sql: `DELETE FROM events WHERE ts < ?`, args: [now - eventsDays * 86400000] }));
+    const usage = count(await this.db.execute({ sql: `DELETE FROM usage WHERE ts < ?`, args: [now - usageDays * 86400000] }));
+    const rotations = count(await this.db.execute({
+      sql: `DELETE FROM key_rotations WHERE id NOT IN (SELECT id FROM key_rotations ORDER BY id DESC LIMIT ?)`,
+      args: [rotationsKeep]
+    }));
+    return { events, usage, rotations };
   }
 
   async getUsageByProvider(sinceMs: number) {

@@ -153,6 +153,54 @@ export interface ApiKey {
   last_used?: number | null; requests?: number;
 }
 
+// ===== أنواع واجهة الوكلاء =====
+export type TaskState = {
+  name: string; intervalMs: number; enabled: boolean; running: boolean;
+  lastRun: number | null; lastMs: number | null; lastOk: boolean | null; lastError: string | null;
+  runs: number; failures: number; skipped: number; nextDueInMs: number | null;
+};
+
+export type SourceStatus = {
+  id: string; label: string; priority: number;
+  configured: boolean; ok: boolean | null;
+  entries: number; error: string | null; latencyMs: number | null; lastSync: number | null;
+};
+
+export type AgentKeyCircuit = {
+  id: number; provider: string; keyFp: string | null; source: string; authority: number;
+  status: string; enabled: boolean; state: 'closed' | 'open' | 'half-open';
+  score: number; requests: number; blockedUntil: number | null; retryInMs: number | null;
+  needsResync: boolean;
+};
+
+export type RotationAudit = {
+  id: number; ts: number; provider: string; key_id: number | null; key_fp: string | null;
+  action: string; reason: string | null; from_source: string | null; to_source: string | null;
+  ok: number; detail: string;
+};
+
+export type AgentsStatus = {
+  scheduler: { running: boolean; tickMs: number; uptimeMs: number; tasks: TaskState[] };
+  rotation: { total: number; closed: number; open: number; halfOpen: number; needsResync: number };
+  sources: SourceStatus[];
+};
+
+export type SyncAction = 'added' | 'reactivated' | 'authority' | 'withdrawn' | 'skipped-manual' | 'error';
+export type SyncCounts = Record<SyncAction, number>;
+
+export type SyncResult = {
+  ok: boolean; durationMs: number; counts: SyncCounts;
+  desiredKeys: number; currentKeys: number;
+  sources: SourceStatus[];
+  actions: Array<{ provider: string; action: SyncAction; source: string | null; keyFp: string | null; reason: string | null }>;
+};
+
+export type RotateResult = {
+  ok: boolean; durationMs: number;
+  counts: { closed: number; open: number; halfOpen: number; needsResync: number };
+  isolatedProviders: string[];
+};
+
 export interface KeysResponse {
   keys: ApiKey[];
   baseUrl: string;
@@ -359,6 +407,18 @@ export const api = {
     newAuthErrors?: string[];
     resolvedAuth?: string[];
   }>(sinceMs ? `/api/drift?sinceMs=${sinceMs}` : '/api/drift'),
+
+  agentsStatus: (init?: RequestInit) => req<AgentsStatus>('/api/agents/status', init),
+  agentsSync: (init?: RequestInit) => req<SyncResult>('/api/agents/sync', init),
+  agentsRotate: (init?: RequestInit) => req<RotateResult>('/api/agents/rotate', init),
+  agentsKeys: (init?: RequestInit) => req<{ keys: AgentKeyCircuit[] }>('/api/agents/keys', init),
+  agentsAudit: (params?: { limit?: number; provider?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.provider) q.set('provider', params.provider);
+    const qs = q.toString();
+    return req<{ rotations: RotationAudit[] }>(`/api/agents/audit${qs ? `?${qs}` : ''}`);
+  },
 
   chat: async (body: any, onChunk?: (chunk: string) => void) => {
     const key = await getUiKey();

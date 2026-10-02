@@ -867,6 +867,18 @@ function looksKeyRelated(out: ProbeResult): boolean {
   return /api key|unauthor|forbidden|invalid key|authentication|permission|not allowed/i.test(out.error || '');
 }
 
+/**
+ * هل نحتاج تجربة **المفتاح التالي** بعد هذه النتيجة؟
+ * القاعدة: الخطأ على مستوى المفتاح (مصادقة) لا على مستوى النموذج ⇒ المفتاح التالي
+ * قد ينجح. أي جواب آخر نهائي: النموذج سليم أو ميت أو محجوب، وتكراره بلا فائدة.
+ * (النسخة السابقة كان فيها فرعان متضادّان يخرجان دائماً ⇒ الحلقة ميتة، خل S4.)
+ */
+export function shouldTryNextKey(out: ProbeResult): boolean {
+  if (out.status === 'provider_auth') return true;
+  // بعض المزوّدات تردّ 404 بنصّ عن المصادقة — نعامله كخطأ مفتاح لا كنموذج ميت
+  return out.status === 'rejected' && looksKeyRelated(out);
+}
+
 async function probeWithKeys(pid: string, model: string): Promise<ProbeResult> {
   const entry = router.getProvider(pid)!;
   const slots = router.availableKeySlots(entry);
@@ -878,11 +890,8 @@ async function probeWithKeys(pid: string, model: string): Promise<ProbeResult> {
     const out = await probeModel(pid, entry.provider.baseUrl, slot.key || undefined, model, entry.provider.keyless);
     attempts.push({ slot, out });
 
-    // نجح، أو مشكلة مفتاح/حصة/بطء → جواب نهائي، لا معنى لتجربة مفتاح آخر
-    // (نموذج ميت يعطي نفس الرفض مع كل المفاتيح، فتكراره بلا فائدة)
-    if (out.status !== 'rejected') break;
-    if (looksKeyRelated(out)) break;  // خطأ مصادقة → لا تلمس النموذج
-    if (!looksKeyRelated(out)) break; // رفض نموذج واضح → جواب نهائي
+    if (shouldTryNextKey(out)) continue; // مفتاح معطّل ⇒ جرّب التالي (هذا هو التدوير)
+    break;                                // أي جواب آخر نهائي: النموذج سليم/ميت/محجوب
   }
 
   const last = attempts[attempts.length - 1].out;
@@ -1232,6 +1241,29 @@ scheduler.register({
       ok: true,
       detail: { ...report.counts, isolated: report.isolatedProviders.length, durationMs: report.durationMs }
     };
+  }
+});
+
+// ===== تنظيف السجلات (سياسة احتفاظ صريحة — القاعدة بلا سقف تنمو) =====
+const RETENTION_INTERVAL_MS = numOr(process.env.AGENT_RETENTION_INTERVAL_MS, 6 * 60 * 60_000);
+const EVENTS_RETENTION_DAYS = numOr(process.env.RETENTION_EVENTS_DAYS, 30);
+const USAGE_RETENTION_DAYS = numOr(process.env.RETENTION_USAGE_DAYS, 90);
+const ROTATIONS_KEEP = numOr(process.env.RETENTION_ROTATIONS_KEEP, 5000);
+scheduler.register({
+  name: 'retention',
+  intervalMs: RETENTION_INTERVAL_MS,
+  run: async () => {
+    const r = await db.prune({
+      eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS, rotationsKeep: ROTATIONS_KEEP
+    });
+    const removed = r.events + r.usage + r.rotations;
+    if (removed > 0) {
+      await db.logEvent('agents.retention', {
+        status: 'success',
+        meta: { ...r, eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS }
+      }).catch(() => {});
+    }
+    return { ok: true, detail: { ...r, removed } };
   }
 });
 

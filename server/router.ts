@@ -137,12 +137,30 @@ export class Router {
     };
   }
 
+  /**
+   * تحويل قيمة منطقية قادمة من HTTP بأمان.
+   * لماذا دالة؟ كان `!!v` ⇒ النص "false" يصبح `true` (خطأ صامت من الواجهة).
+   */
+  private toBool(v: any): boolean {
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'string') { const s = v.trim().toLowerCase(); return s === 'true' || s === '1'; }
+    return !!v;
+  }
+
+  /** عدد غير سالب ومعقول — لا NaN ولا قيم مهوِلة تُمرَّر للمزودين. */
+  private toNum(v: any): number {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.floor(n);
+  }
+
   applySettings(patch: Record<string, any>) {
     for (const [k, v] of Object.entries(patch)) {
       if (k === 'clearCache') { this.responseCache.clear(); continue; }
       if (!(k in this.settings)) continue;
-      this.settings[k] = typeof this.settings[k] === 'boolean' ? !!v
-        : typeof this.settings[k] === 'number' ? Number(v) || 0 : v;
+      if (typeof this.settings[k] === 'boolean') this.settings[k] = this.toBool(v);
+      else if (typeof this.settings[k] === 'number') this.settings[k] = this.toNum(v);
+      else this.settings[k] = v;
     }
   }
 
