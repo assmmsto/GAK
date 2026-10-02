@@ -142,7 +142,17 @@ app.use('/v1', async (req, res, next) => {
     keysExistCache = keys.length > 0;
     keysCacheTs = now;
   }
-  if (keysExistCache === false) return next(); // localhost dev mode: ما في مفاتيح → مفتوح
+  // **fail-closed**: غياب المفاتيح لا يعني «افتح». كان هنا باب مفتوح — حذف
+  // كل مفاتيح البوابة كان يجعل /v1 متاحاً للجميع بلا مصادقة حتى إعادة التشغيل.
+  // القفل يجب أن يقفل لا أن يفتح. 503 لا 401: الخطأ في إعداد الخادم لا العميل.
+  if (keysExistCache === false) {
+    return res.status(503).json({
+      error: {
+        message: 'No API key is configured on this gateway — generate one from the dashboard (Keys tab).',
+        type: 'gateway_misconfigured'
+      }
+    });
+  }
   const auth = req.headers.authorization || '';
   const bearer = auth.startsWith(BEARER_PREFIX) ? auth.slice(BEARER_PREFIX.length).trim() : '';
   // بعض العملاء (Anthropic SDK / Claude Code) يرسلون x-api-key بدل Authorization
@@ -383,8 +393,30 @@ async function collectModels() {
   }));
 }
 
+// ===== ذاكرة مؤقتة لقوائم النماذج (S3) =====
+// القياس قبل الإصلاح: `/v1/models` = 3037ms و`/api/drift` = 2006ms لأن كل طلب
+// كان يضرب 15 مزوّداً على /models. ومهمة drift تضربهم **كل 60 ثانية**.
+// السبب: لا نريد أن يكون قياس السطح حياً على استعلام قراءة متكرّر.
+const MODELS_CACHE_TTL_MS = Number(process.env.MODELS_CACHE_TTL_MS) > 0
+  ? Number(process.env.MODELS_CACHE_TTL_MS)
+  : 60_000;
+let modelsCache: { at: number; data: Awaited<ReturnType<typeof collectModels>> } | null = null;
+
+/** يُبطل الذاكرة عند أي تغيير في المزوّدات أو المفاتيح (مصدر الحقيقة يتغيّر). */
+function invalidateModelsCache(): void { modelsCache = null; }
+
+async function collectModelsCached(): Promise<{ data: Awaited<ReturnType<typeof collectModels>>; cached: boolean }> {
+  const now = Date.now();
+  if (modelsCache && now - modelsCache.at < MODELS_CACHE_TTL_MS) {
+    return { data: modelsCache.data, cached: true };
+  }
+  const data = await collectModels();
+  modelsCache = { at: now, data };
+  return { data, cached: false };
+}
+
 async function countAvailableModels(): Promise<number> {
-  const lists = await collectModels();
+  const { data: lists } = await collectModelsCached();
   return lists.reduce((sum, { id, models }) => {
     const rejected = router.rejectedModels(id);
     return sum + models.filter((m: any) => !rejected.has(m.id)).length;
@@ -400,7 +432,8 @@ app.get('/v1/models', async (_req, res) => {
     owned_by: 'gateway', _provider: 'gateway', _tier: 0, _upstream_id: 'auto',
     _note: 'router picks the best available model'
   });
-  for (const { id, entry, models } of await collectModels()) {
+  const { data: modelLists, cached } = await collectModelsCached();
+  for (const { id, entry, models } of modelLists) {
     // نطّلع النماذج المرفوضة (من الفحص) عشان ما نعرضها
     const rejected = router.rejectedModels(id);
     for (const m of models) {
@@ -415,7 +448,13 @@ app.get('/v1/models', async (_req, res) => {
       });
     }
   }
-  res.json({ object: 'list', data: all, _meta: { total: all.length, hidden: hidden.length, hiddenList: hidden.slice(0, 50) } });
+  res.json({
+    object: 'list', data: all,
+    _meta: {
+      total: all.length, hidden: hidden.length, hiddenList: hidden.slice(0, 50),
+      cache: cached ? 'hit' : 'miss', cacheTtlMs: MODELS_CACHE_TTL_MS
+    }
+  });
 });
 
 // ----- Unified API key management (CRUD) -----
@@ -1282,6 +1321,7 @@ app.post('/api/providers/:id/keys', async (req, res) => {
       added++;
     }
     await router.reloadProviderKeys(id);
+    invalidateModelsCache();
     await db.logEvent('provider_key.added', { provider: id, status: 'success', meta: { count: added } });
     broadcast({ type: 'provider-keys', providerId: id });
     res.json({ ok: true, added, keys: router.keyDetails(id), summary: router.keySummary(router.getProvider(id)) });
@@ -1313,6 +1353,7 @@ app.patch('/api/providers/:id/keys/:keyId', async (req, res) => {
     if (body.reactivate) { patch.status = 'unknown'; patch.error = null; patch.blockMs = null; }
     await db.updateProviderKey(keyId, patch);
     await router.reloadProviderKeys(id);
+    invalidateModelsCache();
     await db.logEvent('provider_key.updated', { provider: id, status: 'success', meta: { keyId } });
     broadcast({ type: 'provider-keys', providerId: id });
     res.json({ ok: true, keys: router.keyDetails(id), summary: router.keySummary(router.getProvider(id)) });
@@ -1329,6 +1370,7 @@ app.delete('/api/providers/:id/keys/:keyId', async (req, res) => {
   try {
     await db.deleteProviderKey(keyId);
     await router.reloadProviderKeys(id);
+    invalidateModelsCache();
     await db.logEvent('provider_key.deleted', { provider: id, status: 'success', meta: { keyId } });
     broadcast({ type: 'provider-keys', providerId: id });
     res.json({ ok: true, keys: router.keyDetails(id), summary: router.keySummary(router.getProvider(id)) });
@@ -1373,6 +1415,7 @@ app.post('/api/providers/import', async (req, res) => {
       yaml.providers.push(newEntry);
       yamlChanged = true;
       router.addProvider(newEntry);
+      invalidateModelsCache();
       addedProvider = true;
     }
     if (!pid) {
@@ -1401,6 +1444,7 @@ app.post('/api/providers/import', async (req, res) => {
   if (!dryRun) {
     for (const pid of [...new Set(results.filter(r => r.status === 'ok').map(r => r.provider))]) {
       await router.reloadProviderKeys(pid as string);
+      invalidateModelsCache();
     }
     await db.logEvent('providers.imported', {
       status: 'success',
@@ -1458,6 +1502,7 @@ app.post('/api/providers/add', async (req, res) => {
     yaml.providers.push(entry);
     writeProvidersYaml(yaml);
     router.addProvider(entry);
+    invalidateModelsCache();
     if (apiKey) {
       await db.addProviderKey(id, String(apiKey).trim(), entry.apiKeyEnv);
       await router.reloadProviderKeys(id);
@@ -1483,6 +1528,7 @@ app.post('/api/providers/:id/toggle', async (req, res) => {
     yaml.providers[idx] = { ...yaml.providers[idx], enabled };
     writeProvidersYaml(yaml);
     const applied = router.toggleProvider(id, enabled);
+    invalidateModelsCache();
     await db.logEvent('provider.toggled', { provider: id, status: 'success', meta: { enabled } });
     broadcast({ type: 'provider-toggled', providerId: id, enabled });
     res.json({ ok: true, enabled, applied });
@@ -1533,6 +1579,7 @@ app.patch('/api/providers/:id', async (req, res) => {
     writeProvidersYaml(yaml);
     reloadProvider(updated);
     await router.reloadProviderKeys(id);
+    invalidateModelsCache();
     await db.logEvent('provider.edited', { provider: id, status: 'success', meta: keyAction ? { keyAction } : undefined });
     broadcast({ type: 'provider-edited', providerId: id });
     const fresh = router.getProvider(id);
@@ -1557,6 +1604,7 @@ app.delete('/api/providers/:id', async (req, res) => {
     // نحذف مفتاحه من .env أيضاً — كما تعد الواجهة في رسالة التأكيد
     if (target?.apiKeyEnv) upsertEnvVar(target.apiKeyEnv, null);
     router.removeProvider(id);
+    invalidateModelsCache();
     await db.logEvent('provider.removed', { provider: id, status: 'success' });
     broadcast({ type: 'provider-removed', providerId: id });
     res.json({ ok: true, envVarRemoved: target?.apiKeyEnv || null });

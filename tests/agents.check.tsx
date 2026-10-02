@@ -220,6 +220,53 @@ const agentOutputs = JSON.stringify([
 ]);
 check('لا سر في أي مخرجات وكلاء', !agentOutputs.includes(SECRET_A) && !agentOutputs.includes(SECRET_B));
 
+// ============================================================
+// 11) الربط الفعّال: ترتيب المفاتيح يصل إلى الموجّه (S1)
+// ============================================================
+// هذا هو الفرق بين "وكيل يقرأ" و"وكيل يُغيّر". قبل الربط كان rankCircuits
+// معلَّقاً بلا مستهلك ⇒ كل نظام التدوير لا أثر له على أي طلب حقيقي.
+group('11) ترتيب المفاتيح فعّال في الموجّه');
+{
+  const cfg2 = {
+    providers: [{
+      id: 'rot', name: 'rot', baseUrl: 'https://example.invalid/v1',
+      format: 'openai', tier: 4, enabled: true, models: 'auto'
+    }],
+    routing: { maxRetries: 1, timeoutMs: 1000, maxConcurrent: 2 }
+  } as any;
+  const r2 = new Router(cfg2, db);
+  const kA = await db.addProviderKey('rot', 'sk-rot-AAAAAAAAAAAAAAAAAAAA', 'A');
+  const kB = await db.addProviderKey('rot', 'sk-rot-BBBBBBBBBBBBBBBBBBBB', 'B');
+  // حالة متساوية (سليمان بنفس الإحصاءات) ⇒ لا فضل لأحد ⇒ ترتيب الإدراج
+  await db.updateProviderKey(Number(kA.id), { status: 'ok', requests: 5 });
+  await db.updateProviderKey(Number(kB.id), { status: 'ok', requests: 5 });
+  await r2.reloadProviderKeys('rot');
+
+  const tie = r2.availableKeySlots(r2.getProvider('rot')).map(s => s.id);
+  check('تساوٍ ⇒ ترتيب الإدراج', tie[0] === Number(kA.id), `order=${tie.join(',')}`);
+
+  // **هذا هو الربط (S1)**: درجات الوكيل تصل الموجّه فيقلب الترتيب.
+  r2.setKeyScores([{ id: Number(kA.id), score: 0 }, { id: Number(kB.id), score: 100 }]);
+  const flipped = r2.availableKeySlots(r2.getProvider('rot')).map(s => s.id);
+  check('درجات الوكيل تنقلب الترتيب', flipped[0] === Number(kB.id), `order=${flipped.join(',')}`);
+
+  // تكامل: بعد دورة الوكيل الحقيقي يطابق ترتيبُ الموجّه ترتيبَ الوكيل تماماً
+  const rot2 = new RotationAgent(db, r2);
+  const report = await rot2.tick();
+  const rank = rankCircuits(report.keys.filter(k => k.provider === 'rot')).map(k => k.id);
+  const live = r2.availableKeySlots(r2.getProvider('rot')).map(s => s.id);
+  check('الموجّه يطابق ترتيب الوكيل', JSON.stringify(rank) === JSON.stringify(live),
+    `rank=${rank.join(',')} live=${live.join(',')}`);
+
+  // ودون درجات، الموجّه يحسب الدرجة لحظياً بنفس القاعدة (لا يعتمد على تشغيل الوكيل)
+  const r3 = new Router(cfg2, db);
+  await r3.reloadProviderKeys('rot');
+  await db.updateProviderKey(Number(kA.id), { status: 'unknown' });
+  await r3.reloadProviderKeys('rot');
+  const solo = r3.availableKeySlots(r3.getProvider('rot'));
+  check('قائمة المفاتيح صحيحة بلا درجات', solo.length === 2, `n=${solo.length}`);
+}
+
 try { await db.close(); } catch { /* تجاهل */ }
 try { rmSync(dir, { recursive: true, force: true }); } catch { /* قفل ويندوز */ }
 

@@ -1,6 +1,7 @@
 // server/router.ts — routing + failover على مستويين: المفتاح ثم المزود
 import { createHash } from 'node:crypto';
 import { OpenAIProvider } from './provider.js';
+import { scoreKey, type KeyScoreInput } from './key-score.js';
 import type { Config } from './config.js';
 import type { EventDB } from './db.js';
 
@@ -86,6 +87,8 @@ export class Router {
 
   // عدّاد التزامن الجاري لكل مزود (يُطبَّق في chat عبر الحارس أدناه)
   private inflight = new Map<string, number>();
+  // درجات صحة المفاتيح (من وكيل التدوير) — تجعل ترتيب الاختيار فعّالاً
+  private keyScores = new Map<number, number>();
 
   private acquire(pid: string): boolean {
     const n = this.inflight.get(pid) || 0;
@@ -296,16 +299,39 @@ export class Router {
     if (slot) e.provider = slot.client;
   }
 
-  // المفاتيح المتاحة الآن لهذا المزود (مُفعَّلة وغير معزولة)
+  // المفاتيح المتاحة الآن لهذا المزود (مُفعَّلة وغير معزولة) — مرتَّبة **بالصحة**.
+  // كان الترتيب بترتيب الإدراج (id) ⇒ مفتاح مُتعَب يسبق مفتاحاً حيّاً.
+  // الوكيل يرفع الدرجات عبر setKeyScores؛ ودونها يبقى السلوك القديم (id) كما هو.
   availableKeySlots(e: any): KeySlot[] {
     if (!e || !Array.isArray(e.keys)) return [];
     const now = Date.now();
-    return e.keys.filter((s: KeySlot) => {
+    const slots: KeySlot[] = e.keys.filter((s: KeySlot) => {
       if (!s.enabled) return false;
       if (s.status === 'auth_error') return false;
       if (s.blockedUntil && now < s.blockedUntil) return false;
       return true;
     });
+    if (slots.length < 2) return slots;
+    return slots.sort((a, b) => this.slotScore(b, now) - this.slotScore(a, now) || (a.id ?? 0) - (b.id ?? 0));
+  }
+
+  /** درجة مُدفوعة من الوكيل؛ بلا درجة نحسبها لحظياً من حالة الفتحة (نفس القاعدة). */
+  private slotScore(s: KeySlot, now: number): number {
+    const cached = s.id != null ? this.keyScores.get(s.id) : undefined;
+    if (cached !== undefined) return cached;
+    const row: KeyScoreInput = {
+      id: s.id, status: s.status, enabled: s.enabled,
+      requests: s.requests, blockedUntil: s.blockedUntil
+    };
+    return scoreKey(row, now).score;
+  }
+
+  /** يدفع وكلاء التدوير الدرجات ليصبح الترتيب **فعّالاً** لا تقريرياً. */
+  setKeyScores(scores: Iterable<{ id: number; score: number }>): void {
+    this.keyScores.clear();
+    for (const s of scores) {
+      if (s && Number.isFinite(s.id) && Number.isFinite(s.score)) this.keyScores.set(Number(s.id), Number(s.score));
+    }
   }
 
   // نوقظ المفاتيح التي انتهت مدة عزلها

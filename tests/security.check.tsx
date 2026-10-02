@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as yamlParse } from 'yaml';
-import { validateBaseUrl, isPrivateHost, isLoopbackHost, sanitizeErrorMessage } from '../server/security';
+import { validateBaseUrl, isPrivateHost, isLoopbackHost, sanitizeErrorMessage, rateLimit } from '../server/security';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -193,6 +193,40 @@ check(
 );
 
 // ============================================================
+// ============================================================
+// 7) حدّ المعدل غير قابل للتحايل + /v1 مغلق عند غياب المفاتيح (S2)
+// ============================================================
+group('حدّ المعدل: دلو واحد لكل IP');
+{
+  const mw = rateLimit({ windowMs: 60_000, max: 3 });
+  const mkRes = () => {
+    const res: any = { headers: {} as Record<string, string> };
+    res.setHeader = (k: string, v: string) => { res.headers[k] = v; };
+    res.status = (code: number) => { if (code === 429) res.blocked = true; return res; };
+    res.json = () => res;
+    return res;
+  };
+  let blocked = 0;
+  // **ستة ترويسات مختلفة من العنوان نفسه**: قبل الإصلاح كان لكل واحد دلو ⇒ صفر تحجيم
+  for (let i = 0; i < 6; i++) {
+    const res = mkRes();
+    mw({ ip: '1.2.3.4', headers: { authorization: `Bearer key-${i}` } } as any, res, () => { });
+    if (res.blocked) blocked++;
+  }
+  check('تغيير الترويسة لا يفتح دلواً جديداً', blocked === 3, `blocked=${blocked}`);
+  let blocked2 = 0;
+  for (let i = 0; i < 6; i++) {
+    const res = mkRes();
+    mw({ ip: '5.6.7.8', headers: {} } as any, res, () => { });
+    if (res.blocked) blocked2++;
+  }
+  check('الحدّ يعمل بلا ترويسة', blocked2 === 3, `blocked=${blocked2}`);
+}
+
+group('/v1 مغلق عند غياب المفاتيح (fail-closed)');
+check('لا فرع "افتح" باقى', !/keysExistCache\s*===\s*false\)\s*return\s+next\(\)/.test(indexSrc));
+check('الغياب يرفض بـ503 صريح', /gateway_misconfigured/.test(indexSrc));
+
 console.log('\n' + '='.repeat(46));
 console.log(`نتيجة الحراسة: ${passed} نجاح / ${failures.length} فشل`);
 if (failures.length) {

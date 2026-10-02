@@ -9,10 +9,11 @@
 //   half-open → انتهت المهلة، يُجرَّب مجدداً؛ نجاح ⇒ closed، فشل ⇒ open أطول
 // الضمانة: لا يُعطَّل مفتاح بلا سبب مكتوب، وكل تعطيل يُسجَّل في key_rotations.
 import type { EventDB } from '../db.js';
-import { SOURCE_PRIORITY } from '../db.js';
 import type { Router } from '../router.js';
+// منطق الدرجة **مشترك** مع الموجّه (مصدر حقيقة واحد) — انظر server/key-score.ts
+import { scoreKey, authorityOf, type CircuitState } from '../key-score.js';
 
-export type CircuitState = 'closed' | 'open' | 'half-open';
+export type { CircuitState };
 
 export interface KeyCircuit {
   id: number;
@@ -45,41 +46,26 @@ export interface RotationReport {
 export const BACKOFF_BASE_MS = 60_000;
 export const BACKOFF_MAX_MS = 15 * 60_000;
 
-function authorityOf(source: unknown): number {
-  return SOURCE_PRIORITY[(source as keyof typeof SOURCE_PRIORITY)] ?? 90;
-}
-
 /**
  * حالة المفتاح محسوبة من حقوله المخزّنة فقط — بلا أي طلب شبكة.
  * السرعة شرط: هذه الدورة تعمل كل دقيقة، فلا يجوز أن تكلّف اتصالاً.
+ * (التنفيذ في key-score.ts — نفس الدالة التي يستعملها الموجّه، لا نسخة.)
  */
 export function circuitOf(row: any, now: number): KeyCircuit {
+  const { state, score } = scoreKey(row, now);
   const status = String(row?.status || 'unknown');
   const enabled = row?.enabled !== 0 && row?.enabled !== false;
   const blockedUntil = row?.blocked_until ?? row?.blockedUntil ?? null;
-  const blocked = !!blockedUntil && blockedUntil > now;
   const source = row?.source || 'manual';
   const requests = Number(row?.requests || 0);
-
-  let state: CircuitState;
-  if (!enabled) state = 'open';
-  else if (status === 'auth_error') state = 'open';
-  else if (blocked) state = 'open';
-  else if (status === 'quota_exhausted') state = 'half-open';
-  else if (status === 'ok' && requests > 0) state = 'closed';
-  else state = 'half-open';
-
-  let score = 50; // مفتاح بلا بيانات = محايد
-  if (state === 'closed') score = 100;
-  else if (state === 'open') score = status === 'auth_error' ? 0 : 10;
-  else if (status === 'quota_exhausted') score = 25;
+  const authority = authorityOf(source);
 
   return {
     id: Number(row?.id),
     provider: String(row?.provider || ''),
     keyFp: row?.key_fp ? String(row.key_fp) : null,
     source,
-    authority: authorityOf(source),
+    authority,
     status,
     enabled,
     state,
@@ -87,7 +73,7 @@ export function circuitOf(row: any, now: number): KeyCircuit {
     requests,
     blockedUntil: blockedUntil || null,
     retryInMs: blockedUntil && blockedUntil > now ? blockedUntil - now : null,
-    needsResync: enabled && status === 'auth_error' && authorityOf(source) < 90
+    needsResync: enabled && status === 'auth_error' && authority < 90
   };
 }
 
@@ -130,6 +116,10 @@ export class RotationAgent {
     const now = Date.now();
     const rows = await this.db.listProviderKeysRaw();
     const circuits = rows.map(r => circuitOf(r, now));
+
+    // 0) **الربط الحاسم**: نمرّر الدرجات للموجّه ⇒ ترتيب اختيار المفاتيح يصبح فعّالاً.
+    //    بدون هذا السطر يبقى وكيل التدوير مرصِداً يقرأ ولا يُغيّر (خلل S1).
+    this.router.setKeyScores(circuits.map(c => ({ id: c.id, score: c.score })));
 
     // 1) العزل التصاعدي للحصص المتكررة
     for (const c of circuits) {

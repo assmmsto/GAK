@@ -65,12 +65,13 @@ export function rateLimit(opts: { windowMs: number; max: number; message?: strin
   if (sweep && typeof (sweep as any).unref === 'function') (sweep as any).unref();
 
   return (req: any, res: any, next: () => void) => {
-    // مفتاح الحصة: IP + (أول 8 أحرف من مفتاح البوابة إن وُجد) — حتى لا
-    // يحجب مهاجمٌ بلا مفتاح مستخدماً شرعياً يشاركه نفس IP/NAT.
+    // مفتاح الحصة: **عنوان IP فقط**.
+    // لماذا لا نضمّ بصمة من الترويسات؟ أي بُعد يتحكّم فيه المهاجم يفتح له دلاء
+    // لا نهائية — حتى التجزئة: تغيير محرف واحد = دلو جديد. كان الكود يقتطع آخر
+    // 8 محارف من Authorization ⇒ حدّ المعدل كان يُتجاوز بلا حدّ.
+    // الثمن المقبول: مستخدمو NAT يتقاسمون حصةً واحدة. وهو أفضل من حدّ غير فعّال.
     const ip = (req.ip || req.socket?.remoteAddress || 'unknown') as string;
-    const auth = String(req.headers.authorization || req.headers['x-api-key'] || '');
-    const fp = auth.length > 8 ? ':' + auth.slice(-8) : '';
-    const key = ip + fp;
+    const key = ip;
     const now = Date.now();
     let b = buckets.get(key);
     if (!b || b.resetAt <= now) { b = { count: 0, resetAt: now + WINDOW }; buckets.set(key, b); }
