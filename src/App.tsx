@@ -1,7 +1,7 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Cpu, Activity, Zap, Clock, CheckCircle2, Sparkles, Wifi, ShieldCheck } from 'lucide-react';
+import { Cpu, Activity, Zap, Clock, CheckCircle2, Sparkles, Wifi, WifiOff, ShieldCheck } from 'lucide-react';
 import { api } from './lib/api';
 import { formatUptime, formatNumber, cn } from './lib/utils';
 import { StatCard, Toast } from './components/ui';
@@ -20,11 +20,11 @@ type Tab = 'health' | 'agents' | 'providers' | 'sort' | 'usage' | 'logs' | 'play
 const TABS: { id: Tab; label: string; icon: any; description: string }[] = [
   { id: 'health', label: 'الحالة', icon: ShieldCheck, description: 'أي مفتاح ميت؟' },
   { id: 'agents', label: 'الوكلاء', icon: Activity, description: 'المزامنة والتدوير التلقائي' },
-  { id: 'providers', label: 'Providers', icon: Cpu, description: 'Manage AI providers' },
-  { id: 'sort', label: 'فرز النماذج', icon: FlaskConical, description: 'اللي يشتغل vs المرفوض' },
-  { id: 'usage', label: 'Usage', icon: Activity, description: 'Token consumption' },
-  { id: 'logs', label: 'Logs', icon: Zap, description: 'Recent events' },
-  { id: 'playground', label: 'Playground', icon: Sparkles, description: 'Test chat' }
+  { id: 'providers', label: 'المزوّدون', icon: Cpu, description: 'إدارة مزوّدي الذكاء الاصطناعي' },
+  { id: 'sort', label: 'فرز النماذج', icon: FlaskConical, description: 'اللي يشتغل مقابل المرفوض' },
+  { id: 'usage', label: 'الاستهلاك', icon: Activity, description: 'استهلاك التوكنات' },
+  { id: 'logs', label: 'السجلات', icon: Zap, description: 'أحدث الأحداث' },
+  { id: 'playground', label: 'الملعب', icon: Sparkles, description: 'اختبار المحادثة' }
 ];
 
 export default function App() {
@@ -63,9 +63,21 @@ export default function App() {
   const total = status?.providers.length || 0;
   const requests = status?.stats.total || 0;
   const success = status?.stats.success || 0;
-  const rate = requests > 0 ? Math.round((success / requests) * 100) : 100;
+  // 0/0 ليس 100% — لا طلبات تعني «لا بيانات» لا «نجاح كامل».
+  const rate = requests > 0 ? Math.round((success / requests) * 100) : null;
   const recent = logsData?.events?.[0];
   const isHealthy = total > 0 && up > 0;
+
+  // شارة الاتصال تعكس الحقيقة: الاتصال بالخادم نفسه، لا مجرد وجود مزوّد.
+  // كانت مكتوبة «Online» ثابتة بلا أي شرط — تهبط بالحالة نفسها لو كان كل
+  // المزوّدين ميتين أو الخادم لا يستجيب.
+  const conn = status === undefined
+    ? { label: 'جارٍ الاتصال…', cls: 'bg-ink-dim/10 border-ink-dim/30 text-ink-muted', Icon: Wifi }
+    : !isHealthy
+      ? { label: total === 0 ? 'لا مزوّدين' : 'لا مزوّد متاح', cls: 'bg-bad/10 border-bad/30 text-bad', Icon: WifiOff }
+      : up < total
+        ? { label: `مزوّد متعطّل ${total - up}/${total}`, cls: 'bg-warn/10 border-warn/30 text-warn', Icon: Wifi }
+        : { label: 'يعمل', cls: 'bg-ok/10 border-ok/30 text-ok', Icon: Wifi };
 
   return (
     <div className="min-h-screen p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -75,8 +87,8 @@ export default function App() {
           <div className="relative">
             <div className="text-4xl heading-accent font-black">⚡</div>
             <div className={cn(
-              'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full',
-              isHealthy ? 'bg-ok ' : 'bg-ink-dim'
+              'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full ring-2 ring-canvas',
+              isHealthy ? 'bg-ok' : 'bg-ink-dim'
             )} />
           </div>
           <div>
@@ -84,46 +96,46 @@ export default function App() {
               AI Gateway
             </h1>
             <p className="text-xs text-ink-muted mt-0.5">
-              Unified multi-provider proxy · v1.0.0
+              بوابة موحّدة متعددة المزوّدين · v1.0.0
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok/10 border border-ok/30">
-            <Wifi className="w-3.5 h-3.5 text-ok" />
-            <span className="text-xs font-medium text-ok">Online</span>
+          <div className={cn('hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border', conn.cls)}>
+            <conn.Icon className="w-3.5 h-3.5" />
+            <span className="text-xs font-medium">{conn.label}</span>
           </div>
-          <span className="badge-primary">v1.0</span>
+          <span className="badge badge-primary">v1.0</span>
         </div>
       </header>
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatCard
-          label="Providers"
+          label="المزوّدون"
           value={`${up}/${total}`}
-          meta={up > 0 ? `${up} active` : 'none active'}
+          meta={total === 0 ? 'لا مزوّدين مضافين' : up > 0 ? `${up} متاح` : 'لا شيء متاح'}
           icon={Cpu}
           accent="success"
         />
         <StatCard
-          label="Requests (24h)"
+          label="الطلبات (24 ساعة)"
           value={formatNumber(requests)}
-          meta={`${success} successful`}
+          meta={requests > 0 ? `${formatNumber(success)} ناجحة` : 'لا حركة'}
           icon={Activity}
           accent="accent"
         />
         <StatCard
-          label="Success Rate"
-          value={`${rate}%`}
-          meta={requests > 0 ? `${requests - success} errors` : 'no traffic'}
+          label="نسبة النجاح"
+          value={rate === null ? '—' : `${rate}%`}
+          meta={rate === null ? 'لا بيانات كافية' : `${formatNumber(requests - success)} أخطاء`}
           icon={CheckCircle2}
-          accent={rate >= 95 ? 'success' : rate >= 70 ? 'warning' : 'error'}
+          accent={rate === null ? 'accent' : rate >= 95 ? 'success' : rate >= 70 ? 'warning' : 'error'}
         />
         <StatCard
-          label="Uptime"
+          label="مدة التشغيل"
           value={formatUptime(status?.uptime || 0)}
-          meta="since start"
+          meta="منذ الإقلاع"
           icon={Clock}
           accent="accent-2"
         />
@@ -131,18 +143,18 @@ export default function App() {
 
       {/* Last event ticker */}
       {recent && (
-        <div className="card mb-5  flex items-center gap-3 text-xs overflow-hidden relative">
-          <div className="absolute inset-y-0 left-0 w-1 bg-primary" />
-          <span className="text-ink-dim ml-2">latest:</span>
-          <span className="font-mono text-ink-muted">{new Date(recent.ts).toLocaleTimeString()}</span>
+        <div className="card mb-5 flex items-center gap-3 text-xs overflow-hidden relative ps-4">
+          <div className="absolute inset-y-0 start-0 w-1 bg-primary" />
+          <span className="text-ink-dim shrink-0">أحدث حدث:</span>
+          <span className="font-mono text-ink-muted shrink-0">{new Date(recent.ts).toLocaleTimeString()}</span>
           <span className={cn(
-            'font-mono font-semibold',
+            'font-mono font-semibold shrink-0',
             recent.status === 'success' ? 'text-ok' :
             recent.status === 'error' ? 'text-bad' : 'text-ink'
           )}>{recent.type}</span>
-          {recent.provider && <span className="font-mono text-ink-muted">· {recent.provider}</span>}
-          {recent.latency_ms != null && <span className="font-mono text-ink-muted">· {recent.latency_ms}ms</span>}
-          {recent.error && <span className="font-mono text-bad truncate">· {recent.error.slice(0, 50)}</span>}
+          {recent.provider && <span className="font-mono text-ink-muted shrink-0">· {recent.provider}</span>}
+          {recent.latency_ms != null && <span className="font-mono text-ink-muted shrink-0">· {recent.latency_ms}ms</span>}
+          {recent.error && <span className="font-mono text-bad truncate min-w-0" title={recent.error}>· {recent.error}</span>}
         </div>
       )}
 
@@ -174,18 +186,18 @@ export default function App() {
       </nav>
 
       {/* Content */}
-      <main className="">
+      <main>
         {tab === 'health' && <HealthTab />}
-      {tab === 'agents' && <AgentsTab showToast={showToast} />}
-      {tab === 'providers' && <ProvidersTab onToast={showToast} />}
+        {tab === 'agents' && <AgentsTab showToast={showToast} />}
+        {tab === 'providers' && <ProvidersTab onToast={showToast} />}
         {tab === 'sort' && <SortTab onToast={showToast} />}
         {tab === 'usage' && <UsageTab />}
         {tab === 'logs' && <LogsTab />}
-        {tab === 'playground' && <PlaygroundTab />}
+        {tab === 'playground' && <PlaygroundTab onToast={showToast} />}
       </main>
 
-      {/* Toasts */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+      {/* Toasts — منطقي (end) حتى لا تخرج عن الشاشة في RTL */}
+      <div className="fixed bottom-4 end-4 z-50 flex flex-col gap-2 pointer-events-none">
         {toasts.map(t => (
           <div key={t.id} className="pointer-events-auto">
             <Toast msg={t.msg} type={t.type} />

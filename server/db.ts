@@ -459,7 +459,7 @@ export class EventDB {
    * لماذا: `health.ok` كل 60ث × 15 مزوّداً ≈ 21,600 صف/يوم بلا سقف ⇒ القاعدة تنمو
    * بلا حدّ. سياسة الاحتفاظ مكتوبة في هذا الملف وحده (لا أحد يخمّن مدة أخرى).
    */
-  async prune(opts: { eventsDays?: number; usageDays?: number; rotationsKeep?: number; probesDays?: number } = {}) {
+  async prune(opts: { eventsDays?: number; usageDays?: number; rotationsKeep?: number; probesDays?: number; idleKeyDays?: number } = {}) {
     await this.ready;
     const now = Date.now();
     const eventsDays = Math.max(1, Number(opts.eventsDays) || 30);
@@ -469,7 +469,13 @@ export class EventDB {
     // «نماذج المزود» بنتيجة عمرها شهور (خلل مثبت بالقراءة). نتائج أقدم من أسبوع
     // بلا قيمة — كل الأحكام لها TTL أقصر من ذلك في التوجيه والفحص.
     const probesDays = Math.max(1, Number(opts.probesDays) || 7);
+    // مفاتيح العملاء كانت لا تُحذف أبداً: كل متصفح بلا تخزين محلي ينشئ مفتاحاً
+    // (باسم playground) ولا شيء يزيله ⇒ القائمة تتضخم بمفاتيح ميتة. المفتاح الذي
+    // لم يُستخدم منذ idleKeyDays ولم يزد عدّاده يعني تخلّى عنه صاحبه. المفاتيح
+    // الجديدة تُمنح مهلة كاملة من لحظة الإنشاء (ts) حتى لو لم تُستخدم بعد.
+    const idleKeyDays = Math.max(1, Number(opts.idleKeyDays) || 30);
     const count = (r: any) => Number(r?.rowsAffected || 0);
+    const idleCutoff = now - idleKeyDays * 86400000;
 
     const events = count(await this.db.execute({ sql: `DELETE FROM events WHERE ts < ?`, args: [now - eventsDays * 86400000] }));
     const usage = count(await this.db.execute({ sql: `DELETE FROM usage WHERE ts < ?`, args: [now - usageDays * 86400000] }));
@@ -478,7 +484,23 @@ export class EventDB {
       args: [rotationsKeep]
     }));
     const probes = count(await this.db.execute({ sql: `DELETE FROM model_probe WHERE checked_at < ?`, args: [now - probesDays * 86400000] }));
-    return { events, usage, rotations, probes };
+    const apiKeys = count(await this.db.execute({
+      sql: `DELETE FROM api_keys WHERE COALESCE(last_used, ts) < ?`,
+      args: [idleCutoff]
+    }));
+    return { events, usage, rotations, probes, apiKeys };
+  }
+
+  /**
+   * يعيد مساحة الصفحات الحرة إلى نظام الملفات بعد `prune`.
+   * SQLite لا يقلّص الملف تلقائياً: الحذف يترك الصفحات حرة داخل الملف، فيبقى
+   * الملف كبيراً بلا سبب (‎1,444 من 1,478 صفحة حرة في قياس فعلي‎). VACUUM يعيد
+   * بناء الملف مضغوطاً. لا يغطّي قيمة الإعداد الافتراضي (auto_vacuum=FULL) لأنه
+   * كان سيضيف كتابة على كل commit — التمرير الدوري بعد التنظيف هو الحلّ الأنسب.
+   */
+  async vacuum(): Promise<void> {
+    await this.ready;
+    await this.db.execute('VACUUM');
   }
 
   async getUsageByProvider(sinceMs: number) {

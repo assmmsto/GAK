@@ -123,7 +123,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 // مفتاح تلقائي للواجهة نفسها (الـ dashboard يستخدم /v1 بدون ما المستخدم يكتب مفتاح)
 // المفتاح الكامل لا يخرج من القاعدة بعد إنشائه (تُخزَّن hash) — لذا تحفظه الواجهة
-// محلياً عند أول إنشاء، وينشئ واحداً تلقائياً باسم playground إن لم يوجد.
+// محلياً عند أول إنشاء.
 const UI_KEY_STORAGE = 'gw_ui_key';
 let _uiKey = '';
 export async function getUiKey(): Promise<string> {
@@ -132,16 +132,25 @@ export async function getUiKey(): Promise<string> {
     _uiKey = localStorage.getItem(UI_KEY_STORAGE) || '';
   } catch { /* بيئة بلا localStorage */ }
   if (_uiKey) return _uiKey;
-  try {
-    // اسم بوقت الإنشاء: كل متصفح بلا تخزين محلي ينشئ مفتاحاً جديداً (لا يمكن
-    // إعادة استخدام القديم — القاعدة تحفظ البصمة فقط)، فالطابع الزمني يميّزها
-    // في القائمة عن بعضها بدل أربعة مفاتيح بنفس الاسم.
-    const created = await api.createKey('playground ' + new Date().toLocaleTimeString('en-GB', { hour12: false }));
-    _uiKey = created.key || '';
-    if (_uiKey) {
-      try { localStorage.setItem(UI_KEY_STORAGE, _uiKey); } catch { /* لا تخزين — يعاد الإنشاء لاحقاً */ }
-    }
-  } catch { /* الخادم قد يمنع الإنشاء (توكن admin) — تُستخدم الأداة بمفتاح يدوي */ }
+  // لا إنشاء تلقائي: كان كل متصفح بلا تخزين محلي (وضع خاص، متصفح آخر، مسح
+  // البيانات) ينشئ مفتاحاً جديداً باسم «playground <وقت>» لا يعود إليه أحد —
+  // تضخّم في api_keys بلا فائدة. المفتاح يُنشأ مرة واحدة صراحةً من قائمة
+  // المفاتيح، فإن لم يوجد يعمل التبويب بمفتاح يدوي.
+  return '';
+}
+
+/**
+ * يضمن وجود مفتاح واجهة: يعيد المخزَّن، وإلا ينشئ واحداً **مرة واحدة** ويحفظه.
+ * يُستدعى فقط عند إجراء صريح من المستخدم (تشغيل في الملعب)، لا في تحميل الصفحة.
+ */
+export async function ensureUiKey(): Promise<string> {
+  const existing = await getUiKey();
+  if (existing) return existing;
+  const created = await api.createKey('playground');
+  _uiKey = created.key || '';
+  if (_uiKey) {
+    try { localStorage.setItem(UI_KEY_STORAGE, _uiKey); } catch { /* لا تخزين — يبقى في الذاكرة */ }
+  }
   return _uiKey;
 }
 
@@ -435,18 +444,25 @@ export const api = {
     return req<{ rotations: RotationAudit[] }>(`/api/agents/audit${qs ? `?${qs}` : ''}`);
   },
 
-  chat: async (body: any, onChunk?: (chunk: string) => void) => {
-    const key = await getUiKey();
+  // explicitKey: المفتاح الذي كتبه المستخدم في الملعب — يتقدّم على مفتاح الواجهة.
+  // بلا مفتاح صريح يُنشأ مفتاح الواجهة **مرة واحدة** (ensureUiKey) بقرار صريح من
+  // المستخدم بضغط «أرسل»، لا بمجرد تحميل الصفحة.
+  chat: async (body: any, onChunk?: (chunk: string) => void, explicitKey?: string) => {
+    const key = explicitKey || await ensureUiKey();
     const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
     if (key) authHeaders['Authorization'] = `Bearer ${key}`;
+    const fail = async (res: Response, kind: string) => {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(errorMessage(err, `${kind} — ${res.status} ${res.statusText}`));
+    };
     if (onChunk) {
       const res = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ ...body, stream: true })
       });
-      if (!res.ok || !res.body) throw new Error('Chat failed');
-      const reader = res.body.getReader();
+      if (!res.ok || !res.body) await fail(res, 'فشل الطلب المتدفّق');
+      const reader = res.body!.getReader();
       const decoder = new TextDecoder('utf-8'); // stream=true يحافظ على الحروف متعددة البايت
       let full = '';
       while (true) {
@@ -465,6 +481,8 @@ export const api = {
       headers: authHeaders,
       body: JSON.stringify(body)
     });
+    // كان يتجاهل res.ok فيعيد كائن خطأ كأنه نجاح؛ الآن يرمي الرسالة الفعلية.
+    if (!res.ok) await fail(res, 'فشل الطلب');
     return res.json();
   }
 };

@@ -11,8 +11,13 @@
     --line-hover: #2e3342;
     --ink: #dfe3ec;
     --ink-muted: #9aa3b2;
-    --ink-dim: #5f6878;
+    /* كان #5f6878 = 3.28:1 على --surface و3.0:1 على --surface-2 — دون AA عند
+       أحجام 9–12px. #8b93a3 يعطي 5.3:1 على السطح و4.9:1 على اللوحة. */
+    --ink-dim: #8b93a3;
     --primary: #6d7bd6;
+    /* تدرّج داكن للنص الأبيض فوق الأزرار: #fff على --primary = 3.85:1 (دون AA)،
+       وعلى --primary-strong = 4.9:1. */
+    --primary-strong: #5a68c4;
     --primary-2: #4f9fcf;
     --success: #4fae7d;
     --warning: #c79545;
@@ -63,14 +68,14 @@
   }
   .btn:active { transform: scale(0.99); }
   .btn-primary {
-    background-color: var(--primary);
-    border-color: var(--primary);
+    background-color: var(--primary-strong);
+    border-color: var(--primary-strong);
     color: #fff;
     font-weight: 600;
   }
   .btn-primary:hover {
-    background-color: #5f6dc7;
-    border-color: #5f6dc7;
+    background-color: #4e5cb3;
+    border-color: #4e5cb3;
   }
   .btn-danger {
     border-color: rgba(201, 106, 106, 0.4);
@@ -104,6 +109,16 @@
     border-color: var(--primary);
   }
   .input::placeholder { color: var(--ink-dim); }
+
+  /* حلقة تركيز موحّدة لكل عنصر تفاعلي. كانت `outline: none` على .input بلا
+     بديل، ولم يوجد :focus-visible في المشروع كله — فمستخدم لوحة المفاتيح لا
+     يعرف أين هو. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  .input:focus-visible { outline-offset: 1px; }
 
   .badge {
     display: inline-flex;
@@ -171,4 +186,15 @@
   z-index: 100;
   pointer-events: none;
   color: var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* مؤشر التحميل يبقى مرئياً لكن ساكناً بدل الدوران */
+  .spinner, .animate-spin { animation: none !important; }
 }

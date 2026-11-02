@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api, type ProviderKeyInfo } from '../lib/api';
 import { cn } from '../lib/utils';
+import { ConfirmDialog } from './ui';
 
 const STATUS_META: Record<string, { label: string; cls: string; icon: any }> = {
   ok: { label: 'متاح', cls: 'badge-success', icon: CheckCircle2 },
@@ -27,6 +28,7 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
   const [busy, setBusy] = useState(false);
   const [replacing, setReplacing] = useState<number | null>(null);
   const [replaceValue, setReplaceValue] = useState('');
+  const [askDelete, setAskDelete] = useState<ProviderKeyInfo | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['provider-keys', providerId],
@@ -64,7 +66,11 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
   };
 
   const remove = async (k: ProviderKeyInfo) => {
-    if (!confirm(`حذف المفتاح "${k.label}"؟\n\nلا يمكن التراجع.`)) return;
+    setAskDelete(k);
+  };
+
+  const runRemove = async (k: ProviderKeyInfo) => {
+    setAskDelete(null);
     try {
       await api.deleteProviderKey(providerId, k.id);
       onToast?.('حُذف المفتاح', 'success');
@@ -109,7 +115,7 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
               ].map(s => (
                 <div key={s.l} className="bg-surface-2 rounded-lg py-2 text-center border border-line">
                   <div className={cn('text-xl font-bold tabular-nums', s.c)}>{s.v}</div>
-                  <div className="text-[10px] text-ink-dim">{s.l}</div>
+                  <div className="text-[11px] text-ink-dim">{s.l}</div>
                 </div>
               ))}
             </div>
@@ -213,6 +219,17 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
           </div>
         </div>
       </div>
+
+      {askDelete && (
+        <ConfirmDialog
+          title={`حذف المفتاح "${askDelete.label}"؟`}
+          message="لا يمكن التراجع."
+          confirmLabel="حذف نهائي"
+          danger
+          onCancel={() => setAskDelete(null)}
+          onConfirm={() => runRemove(askDelete)}
+        />
+      )}
     </div>
   );
 }

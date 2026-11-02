@@ -6,24 +6,25 @@ import { api, storedUiKey } from '../lib/api';
 import { cn } from '../lib/utils';
 
 const QUICK_PROMPTS = [
-  'Explain quantum computing in 2 sentences',
-  'Write a haiku about programming',
-  'What is 2+2?',
-  'List 3 colors in JSON'
+  'اشرح الحوسبة الكمية في جملتين',
+  'اكتب هايكو عن البرمجة',
+  'كم يساوي 2+2؟',
+  'أعطني 3 ألوان بصيغة JSON'
 ];
 
-export function PlaygroundTab() {
+export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'info' | 'success' | 'error') => void }) {
   const { data: modelsData } = useQuery({ queryKey: ['models'], queryFn: () => api.models(), refetchInterval: 10000 });
   const models = modelsData?.data || [];
   const [model, setModel] = useState('auto');
-  const [system, setSystem] = useState('You are a helpful assistant.');
-  const [user, setUser] = useState('Hello! Who are you?');
+  const [system, setSystem] = useState('أنت مساعد مفيد ومختصر.');
+  const [user, setUser] = useState('مرحباً! من أنت؟');
+  const [apiKey, setApiKey] = useState('');
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [meta, setMeta] = useState('');
 
-  // --- التوليد التلقائي لبيانات الاتصال ---
+  // --- بيانات الاتصال ---
   const { data: keyData } = useQuery({ queryKey: ['keys'], queryFn: () => api.keys(), refetchInterval: 8000 });
   // المفتاح الكامل لا يخرج من القاعدة (تُخزَّن hash) — نعرض النسخة المحلية
   // للواجهة إن وُجدت، وإلا بصمة القائمة (القيمة الكاملة عند الإنشاء فقط).
@@ -84,17 +85,20 @@ export function PlaygroundTab() {
             }
           } catch {}
         }
-      });
-      const provider = model === 'auto' ? 'auto-routed' : model;
+      }, apiKey.trim() || undefined);
+      const provider = model === 'auto' ? 'توجيه تلقائي' : model;
       // إشعار الاستبدال (في الـ meta أسفل الـ reply)
       if (sub.actual && sub.requested) {
-        setMeta(`↪ استُبدل ${sub.requested} بـ ${sub.actual} (${sub.providerId}) · ${Date.now() - t0}ms`);
+        setMeta(`↪ استُبدل ${sub.requested} بـ ${sub.actual} (${sub.providerId}) · ${Date.now() - t0} م.ث`);
       } else {
-        setMeta(`✓ ${Date.now() - t0}ms · ${provider}`);
+        setMeta(`✓ ${Date.now() - t0} م.ث · ${provider}`);
       }
     } catch (e: any) {
-      setMessages(m => [...m, { role: 'assistant', content: 'Error: ' + e.message }]);
-      setMeta('error');
+      // الخطأ في فقاعة منفصلة، لا داخل ردّ المساعد (كان يوهم أنه إجابة النموذج)
+      setMessages(m => [...m, { role: 'assistant', content: '' }]);
+      setMessages(m => m.slice(0, -1));
+      onToast?.(`فشل الطلب: ${e.message}`, 'error');
+      setMeta('خطأ');
     } finally {
       setLoading(false);
       setStreaming(false);
@@ -108,10 +112,10 @@ export function PlaygroundTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" /> Playground
-            <span className="badge-primary badge">streaming</span>
+            <Sparkles className="w-5 h-5 text-primary" /> الملعب
+            <span className="badge-primary badge">بثّ مباشر</span>
           </h2>
-          <p className="text-xs text-ink-dim mt-0.5">Test any provider or model with live streaming responses</p>
+          <p className="text-xs text-ink-dim mt-0.5">اختبر أي مزوّد أو نموذج بردود متدفّقة مباشرة</p>
         </div>
       </div>
 
@@ -125,19 +129,29 @@ export function PlaygroundTab() {
             value={model}
             onChange={e => setModel(e.target.value)}
           >
-            <option value="auto">✨ auto (router picks best)</option>
-            <optgroup label="Available models">
+            <option value="auto">✨ تلقائي (الموجّه يختار الأفضل)</option>
+            <optgroup label="النماذج المتاحة">
               {models.filter(m => m.id !== 'auto').map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.id} {m._tier === 4 ? '·free' : m._tier === 1 ? '·paid' : ''}
+                  {m.id} {m._tier === 4 ? '· مجاني' : m._tier === 1 ? '· مدفوع' : ''}
                 </option>
               ))}
             </optgroup>
           </select>
         </div>
+        <input
+          className="input !py-1.5 font-mono text-xs w-52"
+          dir="ltr"
+          type="password"
+          aria-label="مفتاح API"
+          placeholder="مفتاح API (اختياري)"
+          title="مفتاح عميل — يُنشأ تلقائياً مرة واحدة عند أول إرسال إن تُرك فارغاً"
+          value={apiKey}
+          onChange={e => setApiKey(e.target.value)}
+        />
         <button onClick={send} disabled={loading || !user.trim()} className="btn btn-primary">
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-          {loading ? 'Sending…' : 'Send'}
+          {loading ? 'جارٍ الإرسال…' : 'أرسل'}
         </button>
       </div>
 
@@ -145,18 +159,18 @@ export function PlaygroundTab() {
       <div className="card !p-3">
         <div className="flex items-center gap-2 mb-2.5">
           <Plug className="w-3.5 h-3.5 text-primary" />
-          <span className="text-[11px] uppercase font-semibold tracking-wider text-ink-muted">Quick connect</span>
-          <span className="text-[10px] text-ink-dim">— يتبع النموذج المختار تلقائياً</span>
+          <span className="text-[11px] uppercase font-semibold tracking-wider text-ink-muted">اتصال سريع</span>
+          <span className="text-[11px] text-ink-dim">— يتبع النموذج المختار تلقائياً</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {[
-            { label: 'Base URL', val: endpoint, id: 'url' as const },
-            { label: 'API Key', val: quickKey || '—', id: 'key' as const },
-            { label: 'Model ID', val: modelId, id: 'model' as const },
+            { label: 'عنوان الأساس', val: endpoint, id: 'url' as const },
+            { label: 'مفتاح API', val: quickKey || '—', id: 'key' as const },
+            { label: 'معرّف النموذج', val: modelId, id: 'model' as const },
           ].map(f => (
             <div key={f.id} className="rounded-lg bg-surface-2 border border-line p-2">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[9px] uppercase tracking-wider text-ink-dim font-semibold">{f.label}</span>
+                <span className="text-[11px] tracking-wide text-ink-dim font-semibold">{f.label}</span>
                 {f.val !== '—' && (
                   <button
                     onClick={() => doCopy(f.id, f.val)}
@@ -168,7 +182,7 @@ export function PlaygroundTab() {
                 )}
               </div>
               <div dir="ltr" className="font-mono text-[11px] text-ink truncate text-left" title={f.val}>
-                {f.val === '—' ? <span className="text-ink-dim italic">يولّد تلقائياً…</span> : f.val}
+                {f.val === '—' ? <span className="text-ink-dim italic">لا مفتاح محفوظ — يُنشأ عند أول إرسال</span> : f.val}
               </div>
             </div>
           ))}
@@ -179,8 +193,8 @@ export function PlaygroundTab() {
         {/* Input panel */}
         <div className="card space-y-3">
           <div>
-            <label className="flex items-center gap-1.5 text-[11px] uppercase text-ink-muted font-semibold tracking-wider mb-1.5">
-              <Bot className="w-3 h-3" /> System
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-muted font-semibold tracking-wide mb-1.5">
+              <Bot className="w-3 h-3" /> رسالة النظام
             </label>
             <textarea
               className="input font-sans" rows={2}
@@ -189,14 +203,14 @@ export function PlaygroundTab() {
             />
           </div>
           <div>
-            <label className="flex items-center gap-1.5 text-[11px] uppercase text-ink-muted font-semibold tracking-wider mb-1.5">
-              <User className="w-3 h-3" /> User prompt
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-muted font-semibold tracking-wide mb-1.5">
+              <User className="w-3 h-3" /> رسالتك
             </label>
             <textarea
               className="input font-sans" rows={6}
               aria-label="رسالتك"
               value={user} onChange={e => setUser(e.target.value)}
-              placeholder="Type your message… (Enter to send, Shift+Enter for newline)"
+              placeholder="اكتب رسالتك… (Enter للإرسال، Shift+Enter لسطر جديد)"
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -207,7 +221,7 @@ export function PlaygroundTab() {
           </div>
 
           <div>
-            <label className="block text-[10px] uppercase text-ink-dim tracking-wider mb-1.5">Quick prompts</label>
+            <label className="block text-[11px] text-ink-dim tracking-wide mb-1.5">أسئلة سريعة</label>
             <div className="flex flex-wrap gap-1">
               {QUICK_PROMPTS.map(p => (
                 <button
@@ -224,16 +238,16 @@ export function PlaygroundTab() {
         {/* Response panel */}
         <div className="card flex flex-col">
           <div className="flex items-center justify-between mb-2">
-            <label className="flex items-center gap-1.5 text-[11px] uppercase text-ink-muted font-semibold tracking-wider">
-              <MessageSquare className="w-3 h-3" /> Conversation
+            <label className="flex items-center gap-1.5 text-[11px] text-ink-muted font-semibold tracking-wide">
+              <MessageSquare className="w-3 h-3" /> المحادثة
             </label>
-            {meta && <span dir="ltr" className="text-[10px] font-mono text-ink-dim">{meta}</span>}
+            {meta && <span dir="ltr" className="text-[11px] font-mono text-ink-dim">{meta}</span>}
           </div>
-          <div className="flex-1 min-h-[300px] max-h-[500px] overflow-y-auto space-y-2.5 pr-1">
+          <div className="flex-1 min-h-[300px] max-h-[500px] overflow-y-auto space-y-2.5 pe-1">
             {messages.length === 0 ? (
               <div className="text-center py-12 text-ink-muted text-sm">
                 <MessageSquare className="w-8 h-8 mx-auto mb-2 text-ink-dim" />
-                No messages yet. Send one to start.
+                لا رسائل بعد — أرسل واحدة للبدء.
               </div>
             ) : (
               messages.map((m, i) => (
@@ -271,7 +285,7 @@ export function PlaygroundTab() {
             )}
           </div>
           {meta && (
-            <div dir="ltr" className="mt-2 pt-2 border-t border-line/50 text-[10px] font-mono text-ink-dim flex items-center gap-1.5">
+            <div dir="ltr" className="mt-2 pt-2 border-t border-line/50 text-[11px] font-mono text-ink-dim flex items-center gap-1.5">
               <Hash className="w-3 h-3" /> {meta}
             </div>
           )}

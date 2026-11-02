@@ -7,7 +7,8 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Clock, KeyRound, Play, Trash2,
   FlaskConical, RefreshCw, Info, Search, Loader2, Power
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, timeAgo } from '../lib/utils';
+import { ConfirmDialog } from './ui';
 
 // ===== الحالات: لون + شرح + ترتيب أولوية =====
 const STATUS_META: Record<ProbeStatus, { label: string; hint: string; badge: string; border: string; icon: any }> = {
@@ -34,14 +35,6 @@ const KPI_ACCENT: Record<string, string> = {
   ok: 'text-ok', provider_auth: 'text-bad', rejected: 'text-bad', warn: 'text-warn', no_key: 'text-ink-dim'
 };
 
-function fmtAgo(ts: number): string {
-  const s = Math.round((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}ث`;
-  if (s < 3600) return `${Math.round(s / 60)}د`;
-  if (s < 86400) return `${Math.round(s / 3600)}س`;
-  return `${Math.round(s / 86400)}ي`;
-}
-
 // صدق البيانات: نتيجة "ok" أقدم من يوم لم يُتحقق منها — تعرض القديم كأنه حال.
 // الخادم يعيد فحصها تلقائياً (OK_STALE_MS في probe.ts)؛ هنا نكشف عمرها للمستخدم
 // حتى لا يختار نموذجاً "يعمل" منذ أسابيع ثم تفشل محادثته (خلل مُثبَت).
@@ -64,6 +57,8 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
   const [cap, setCap] = useState(20);
   const [showMethod, setShowMethod] = useState(false);
   const [showAllRows, setShowAllRows] = useState(false);
+  const [askProbeAll, setAskProbeAll] = useState<number | null>(null);
+  const [askClear, setAskClear] = useState(false);
 
   // ===== البيانات =====
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => api.status(), refetchInterval: 5000 });
@@ -243,10 +238,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
           disabled={busy || enabledProviders.length === 0}
           onClick={() => {
             // كل فحص = طلب محادثة حقيقي لكل نموذج → نُخبر بالحجم المتوقع قبل الاستهلاك
-            const est = enabledProviders.filter(p => p.hasKey || p.keyless).length * cap;
-            if (confirm(`سيُفحص حتى ${est} نموذجاً بطلب محادثة حقيقي — كل طلب يستهلك حصة المزود.\n\nالمتابعة؟`)) {
-              probeAllMut.mutate(enabledProviders);
-            }
+            setAskProbeAll(enabledProviders.filter(p => p.hasKey || p.keyless).length * cap);
           }}
           title="يفحص نماذج كل مزود مفعّل ويملك مفتاحاً (طلب محادثة حقيقي لكل نموذج)"
         >
@@ -276,7 +268,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
         <button
           className="btn btn-sm btn-danger"
           disabled={busy || totalProbed === 0}
-          onClick={() => { if (confirm('مسح كل نتائج الفحص وإطلاق كل النماذج المحجوبة؟')) clearMut.mutate(); }}
+          onClick={() => setAskClear(true)}
           title="يمسح النتائج ويُطلق المحجوب — سيُعاد كل شيء للفحص من جديد"
         >
           <Trash2 className="w-3.5 h-3.5" /> مسح النتائج
@@ -404,12 +396,12 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
                             className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold badge-warning mr-1"
                             title="بيانات فحص قديمة (أقدم من يوم) — الخادم يعيد فحصها تلقائياً؛ قد تكون النتيجة تغيّرت"
                           >
-                            <Clock className="w-3 h-3" /> قديم {fmtAgo(r.checked_at)}
+                            <Clock className="w-3 h-3" /> نتيجة قديمة — {timeAgo(r.checked_at)}
                           </span>
                         )}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-muted">{r.latency_ms ? `${r.latency_ms}ms` : '—'}</td>
-                      <td className="px-3 py-2 text-ink-dim">{r.checked_at ? fmtAgo(r.checked_at) : '—'}</td>
+                      <td className="px-3 py-2 text-ink-dim">{r.checked_at ? timeAgo(r.checked_at) : '—'}</td>
                       <td className="px-3 py-2 text-ink-dim truncate max-w-[260px]" title={r.error || meta.hint}>
                         {r.error || <span className="italic">{meta.hint}</span>}
                       </td>
@@ -441,8 +433,33 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
 
       <p className="text-[11px] text-ink-dim flex items-center gap-1.5">
         <Power className="w-3 h-3" />
-        لإضافة مفتاح أو تعديل رابط مزود أو تفعيله/تعطيله: تبويب <b className="text-ink-muted">Providers</b>.
+        لإضافة مفتاح أو تعديل رابط مزود أو تفعيله/تعطيله: تبويب <b className="text-ink-muted">المزوّدون</b>.
       </p>
+
+      {askProbeAll !== null && (
+        <ConfirmDialog
+          title="فحص كل المزوّدات المفعّلة"
+          message={`سيُفحص حتى ${askProbeAll} نموذجاً بطلب محادثة حقيقي — كل طلب يستهلك حصة المزود.`}
+          detail="استخدم «نماذج لكل مزود» لتقليل الحجم قبل البدء."
+          confirmLabel="ابدأ الفحص"
+          busy={probeAllMut.isPending}
+          onConfirm={() => { setAskProbeAll(null); probeAllMut.mutate(enabledProviders); }}
+          onCancel={() => setAskProbeAll(null)}
+        />
+      )}
+
+      {askClear && (
+        <ConfirmDialog
+          title="مسح نتائج الفحص"
+          message="تُمسح كل نتائج الفحص ويُطلق كل النماذج المحجوبة."
+          detail="ستعود النماذج الميتة إلى التوجيه حتى يُعاد فحصها."
+          confirmLabel="امسح النتائج"
+          danger
+          busy={clearMut.isPending}
+          onConfirm={() => { setAskClear(false); clearMut.mutate(); }}
+          onCancel={() => setAskClear(false)}
+        />
+      )}
     </div>
   );
 }

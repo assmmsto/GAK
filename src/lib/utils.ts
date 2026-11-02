@@ -1,11 +1,16 @@
-// src/lib/utils.ts
-export function timeAgo(ts?: number): string {
+// src/lib/utils.ts — دوال مشتركة للواجهة (مصدر الحقيقة الوحيد لتنسيق الزمن والأرقام)
+
+/**
+ * «مضى 5 د» — الصيغة العربية الوحيدة لعرض الزمن النسبي.
+ * كانت هناك ثلاث نسخ متباعدة (إنجليزية، «قبل …»، وبلا بادئة)؛ هذه تحلّ محلها.
+ */
+export function timeAgo(ts?: number | null): string {
   if (!ts) return '—';
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `مضى ${s} ث`;
+  if (s < 3600) return `مضى ${Math.floor(s / 60)} د`;
+  if (s < 86400) return `مضى ${Math.floor(s / 3600)} س`;
+  return `مضى ${Math.floor(s / 86400)} ي`;
 }
 
 export function formatUptime(seconds: number): string {
@@ -13,9 +18,9 @@ export function formatUptime(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  if (h > 0) return `${h} س ${m} د`;
+  if (m > 0) return `${m} د ${s} ث`;
+  return `${s} ث`;
 }
 
 export function formatNumber(n?: number | null): string {

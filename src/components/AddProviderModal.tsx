@@ -1,7 +1,7 @@
 // src/components/AddProviderModal.tsx
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, Check, Loader2, Server, Key, Globe, Layers, Sparkles, ArrowLeft, ExternalLink, Pencil, AlertTriangle } from 'lucide-react';
+import { X, Check, Loader2, Server, Key, Globe, Layers, Sparkles, ArrowRight, ExternalLink, Pencil, AlertTriangle } from 'lucide-react';
 import { api } from '../lib/api';
 import { cn } from '../lib/utils';
 
@@ -133,7 +133,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
       setAvailableModels(r.models.map(m => ({ id: m.id })));
       setSelectedModels(new Set(r.models.map(m => m.id)));
       if (r.models.length > 0) setStep('models');
-      else setTestResult({ ok: false, latencyMs: 0, error: 'No models returned — provider may use non-standard API' });
+      else setTestResult({ ok: false, latencyMs: 0, error: 'لم يُعِد المزوّد أي نماذج — قد يستخدم واجهة غير متوافقة مع OpenAI' });
     } catch (e: any) { setTestResult({ ok: false, latencyMs: 0, error: e.message }); }
     finally { setFetchingModels(false); }
   };
@@ -201,7 +201,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
       setTestResult({
         ok: okCount > 0,
         latencyMs: 0,
-        error: okCount === 0 ? 'All models failed the probe' : undefined
+        error: okCount === 0 ? 'فشلت كل النماذج في الفحص' : undefined
       });
     } catch (e: any) {
       setTestResult({ ok: false, latencyMs: 0, error: e.message });
@@ -277,13 +277,13 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               {step === 'form' ? (
-                <>{isEdit ? <Pencil className="w-5 h-5 text-primary" /> : <Server className="w-5 h-5 text-primary" />} {isEdit ? `تحرير: ${editTarget!.id}` : 'Add Provider'}</>
+                <>{isEdit ? <Pencil className="w-5 h-5 text-primary" /> : <Server className="w-5 h-5 text-primary" />} {isEdit ? `تحرير: ${editTarget!.id}` : 'أضف مزوّداً'}</>
               ) : (
-                <><Layers className="w-5 h-5 text-primary-2" /> Select Models ({selectedModels.size}/{availableModels.length})</>
+                <><Layers className="w-5 h-5 text-primary-2" /> اختر النماذج ({selectedModels.size}/{availableModels.length})</>
               )}
             </h2>
             <p className="text-xs text-ink-dim mt-0.5">
-              {step === 'form' ? 'Configure connection details' : 'Choose which models to expose'}
+              {step === 'form' ? 'اضبط بيانات الاتصال' : 'اختر أي النماذج تُتاح عبر البوابة'}
             </p>
           </div>
           <button onClick={close} aria-label="إغلاق" className="btn-ghost btn btn-sm p-1.5 text-ink-muted hover:text-ink">
@@ -302,7 +302,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
               : <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
             <span className="font-mono text-xs break-words">
               {testResult.ok
-                ? `نجح الاتصال · ${testResult.latencyMs}ms` + (testResult.statusCode ? ` · HTTP ${testResult.statusCode}` : '')
+                ? `نجح الاتصال · ${testResult.latencyMs} م.ث` + (testResult.statusCode ? ` · HTTP ${testResult.statusCode}` : '')
                 : (testResult.error || 'خطأ غير معروف')}
             </span>
           </div>
@@ -517,10 +517,11 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
                   )}
                   {m.status && (
                     <span className={cn(
-                      'text-[10px] font-bold px-1.5 py-0.5 rounded',
-                      m.status === 'ok' ? 'bg-ok text-white' : 'bg-bad text-white'
+                      // الأحمر/الأخضر مع تباين كافٍ على الخلفية الداكنة
+                      'text-[11px] font-bold px-1.5 py-0.5 rounded',
+                      m.status === 'ok' ? 'bg-ok/20 text-ok' : 'bg-bad/20 text-bad'
                     )}>
-                      {m.status === 'ok' ? 'OK' : 'Failed'}
+                      {m.status === 'ok' ? 'يعمل' : 'فشل'}
                     </span>
                   )}
                 </label>
@@ -529,7 +530,8 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
 
             <div className="flex gap-2 pt-3 border-t border-line/50">
               <button onClick={() => setStep('form')} className="btn">
-                <ArrowLeft className="w-3.5 h-3.5" /> Back
+                {/* في RTL «رجوع» يشير يميناً — السهم الأيسر كان يقلب الاتجاه */}
+                <ArrowRight className="w-3.5 h-3.5" /> رجوع
               </button>
               <button
                 onClick={save} disabled={saving || testing}

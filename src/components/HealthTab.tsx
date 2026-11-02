@@ -8,8 +8,8 @@ import {
   Power, Trash2, PlayCircle, X
 } from 'lucide-react';
 import { api, type HealthKey, type HealthStatus } from '../lib/api';
-import { cn, formatNumber } from '../lib/utils';
-import { StatCard } from './ui';
+import { cn, formatNumber, timeAgo } from '../lib/utils';
+import { ConfirmDialog, Modal, StatCard } from './ui';
 
 const STATUS_META: Record<HealthStatus, { label: string; cls: string; icon: any; hint: string }> = {
   auth_error: {
@@ -31,15 +31,6 @@ const STATUS_META: Record<HealthStatus, { label: string; cls: string; icon: any;
 };
 
 type Filter = 'all' | 'problem' | 'ok' | 'unknown';
-
-function timeAgo(ts: number | null): string {
-  if (!ts) return '—';
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return `قبل ${s}ث`;
-  if (s < 3600) return `قبل ${Math.floor(s / 60)}د`;
-  if (s < 86400) return `قبل ${Math.floor(s / 3600)}س`;
-  return `قبل ${Math.floor(s / 86400)}ي`;
-}
 
 // حالةBusy لكل مفتاح — تمنع نقرتين متزامنتين على نفس الصف
 type BusyMap = Record<number, string>;
@@ -138,13 +129,19 @@ export function HealthTab() {
   const problems = (counts?.auth_error || 0) + (counts?.quota_exhausted || 0);
 
   // ===== إجراءات جماعية =====
+  const [bulkDisableAsk, setBulkDisableAsk] = useState<number | null>(null);
+
   async function bulkDisableDead() {
     const dead = (data?.keys || []).filter(k => k.status === 'auth_error' && k.enabled);
     if (!dead.length) return;
     // تعطيل جماعي بلا تأكيد كان نقرة واحدة تُخرج مفاتيح كثيرة من التوجيه فوراً —
     // نفس منطق الحذف (الأقل خطراً) يطلب تأكيداً، فهذا أولى.
-    // ملاحظة: `confirm` اسم حالة React في هذا المكوّن — نستخدم window.confirm صراحةً.
-    if (!window.confirm(`تعطيل ${dead.length} مفتاحاً ميتاً؟\n\nتُخرج من التوجيه فوراً، ويمكنك إعادة تفعيل أي منها لاحقاً.`)) return;
+    setBulkDisableAsk(dead.length);
+  }
+
+  async function runBulkDisable() {
+    setBulkDisableAsk(null);
+    const dead = (data?.keys || []).filter(k => k.status === 'auth_error' && k.enabled);
     setBulk('disabling'); setErr(null);
     let done = 0;
     const failed: string[] = [];
@@ -369,71 +366,64 @@ export function HealthTab() {
         </div>
       )}
 
+      {/* تأكيد التعطيل الجماعي */}
+      {bulkDisableAsk !== null && (
+        <ConfirmDialog
+          title={`تعطيل ${bulkDisableAsk} مفتاحاً ميتاً؟`}
+          message="تُخرج من التوجيه فوراً، ويمكنك إعادة تفعيل أي منها لاحقاً."
+          confirmLabel="عطّل المفاتيح الميتة"
+          onCancel={() => setBulkDisableAsk(null)}
+          onConfirm={runBulkDisable}
+        />
+      )}
+
       {/* استبدال مفتاح ميت — الحقل يبقى في الذاكرة ولا يُكتب في التخزين */}
       {replacing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="glass rounded-2xl p-5 w-full max-w-md">
-            <h3 className="text-sm font-semibold text-ink mb-1">استبدال مفتاح ميت</h3>
-            <p className="text-xs text-ink-dim mb-3">
-              {replacing.provider} · {replacing.masked}
-            </p>
-            <input
-              type="password"
-              autoFocus
-              value={newKeyValue}
-              onChange={e => setNewKeyValue(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') replaceKey(); }}
-              placeholder="الصق المفتاح الجديد"
-              className="w-full px-3 py-2 rounded-lg bg-panel text-ink text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            <p className="text-[10px] text-ink-muted mt-2">
-              يُخزَّن مشفّراً، وتُصفَّر حالته إلى «لم يُختبر» ليعيد الفحص.
-            </p>
-            <div className="flex items-center justify-end gap-2 mt-4">
-              <button onClick={() => { setReplacing(null); setNewKeyValue(''); }}
-                className="px-3 py-1.5 rounded-lg text-xs bg-panel text-ink-dim hover:text-ink">
+        <Modal
+          title="استبدال مفتاح ميت"
+          onClose={() => { setReplacing(null); setNewKeyValue(''); }}
+          footer={
+            <>
+              <button type="button" onClick={() => { setReplacing(null); setNewKeyValue(''); }} className="btn btn-sm">
                 إلغاء
               </button>
-              <button onClick={replaceKey} disabled={!newKeyValue.trim() || !!busy[replacing.id]}
-                className="px-3 py-1.5 rounded-lg text-xs bg-primary text-white disabled:opacity-50">
+              <button type="button" onClick={replaceKey} disabled={!newKeyValue.trim() || !!busy[replacing.id]} className="btn btn-sm btn-primary">
                 استبدال
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p className="text-xs text-ink-dim mb-3">
+            {replacing.provider} · {replacing.masked}
+          </p>
+          <input
+            type="password"
+            value={newKeyValue}
+            onChange={e => setNewKeyValue(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') replaceKey(); }}
+            placeholder="الصق المفتاح الجديد"
+            className="input"
+          />
+          <p className="text-[11px] text-ink-muted mt-2">
+            يُخزَّن مشفّراً، وتُصفَّر حالته إلى «لم يُختبر» ليعيد الفحص.
+          </p>
+        </Modal>
       )}
 
       {/* تأكيد الحذف — لا رجعة فيه */}
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="glass rounded-2xl p-5 w-full max-w-md">
-            <h3 className="text-sm font-semibold text-ink mb-1">
-              حذف {confirm.keys.length} مفتاح نهائياً؟
-            </h3>
-            <p className="text-xs text-ink-dim mb-1">
-              {confirm.keys.length === 1 ? confirm.label : confirm.keys.map(k => `${k.provider}#${k.id}`).join('، ')}
-            </p>
-            <p className="text-xs text-bad mb-4">
-              لا يمكن التراجع. إن كان الخطأ من المفتاح فالحل أسهل: عطّله بدل حذفه.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button onClick={() => setConfirm(null)}
-                className="px-3 py-1.5 rounded-lg text-xs bg-panel text-ink-dim hover:text-ink">
-                إلغاء
-              </button>
-              <button
-                onClick={async () => {
-                  for (const k of confirm.keys) { mark(k.id, 'deleting'); await removeKey(k); }
-                }}
-                disabled={confirm.keys.some(k => busy[k.id])}
-                className="px-3 py-1.5 rounded-lg text-xs bg-bad text-white disabled:opacity-50">
-                {confirm.keys.some(k => busy[k.id])
-                  ? <RefreshCw className="w-3 h-3 animate-spin inline" />
-                  : `احذف ${confirm.keys.length}`}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={`حذف ${confirm.keys.length} مفتاح نهائياً؟`}
+          message={confirm.keys.length === 1 ? confirm.label : confirm.keys.map(k => `${k.provider}#${k.id}`).join('، ')}
+          detail="لا يمكن التراجع. إن كان الخطأ من المفتاح فالحل أسهل: عطّله بدل حذفه."
+          confirmLabel={`احذف ${confirm.keys.length}`}
+          danger
+          busy={confirm.keys.some(k => busy[k.id])}
+          onCancel={() => setConfirm(null)}
+          onConfirm={async () => {
+            for (const k of confirm.keys) { mark(k.id, 'deleting'); await removeKey(k); }
+          }}
+        />
       )}
     </div>
   );

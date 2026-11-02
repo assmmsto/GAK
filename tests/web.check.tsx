@@ -58,13 +58,15 @@ const NON_COLOR = new Set([
   'none', 'dashed', 'solid', 'dotted', 'double', 'hidden',
   'xs', 'sm', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl',
   'black', 'white', 'transparent', 'current', 'inherit',
-  // `border-b`/`border-t`/`border-l` بلا لون = عرض فقط
-  'b', 't', 'l', 'r',
+  // `border-b`/`border-t`/`border-l`/`border-s`… بلا لون = عرض أو جهة فقط
+  // (l/r/t/b فيزيائية، s/e منطقية — الصحيحة في RTL)
+  'b', 't', 'l', 'r', 's', 'e',
 ]);
-const isWidthOrShade = (t: string) => /^[lrtb]-\d+$/.test(t) || /^[a-z]+-\d{2,3}$/.test(t);
+// `border-s-4` = عرض، و`border-s-primary` = لون الجهة المنطقية
+const isWidthOrShade = (t: string) => /^[lrtbse]-\d+$/.test(t) || /^[a-z]+-\d{2,3}$/.test(t);
 
 const colorUtil =
-  /\b(?:border-l|border-r|border-t|border-b|ring-offset|placeholder|decoration|outline|divide|border|bg|text|ring|from|via|to|accent|caret|fill|stroke|shadow)-([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?![a-z0-9-])/g;
+  /\b(?:border-l|border-r|border-t|border-b|border-s|border-e|ring-offset|placeholder|decoration|outline|divide|border|bg|text|ring|from|via|to|accent|caret|fill|stroke|shadow)-([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?![a-z0-9-])/g;
 const offenders = new Map<string, Set<string>>();
 for (const f of walk('src').filter(p => /\.tsx$/.test(p))) {
   const src = readFileSync(join(ROOT, f), 'utf8');

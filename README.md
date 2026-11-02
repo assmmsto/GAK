@@ -6,7 +6,7 @@ Unified multi-provider AI gateway with real-time web dashboard, streaming chat, 
 
 - **OpenAI-compatible API** at `/v1/chat/completions`
 - **Anthropic-compatible API** at `/v1/messages` (works with Claude Code and the Anthropic SDK)
-- **15+ providers** pre-configured (a catalog of 36, extensible)
+- **38 ready presets** in the catalog (`server/catalog.yaml`) — one click in the dashboard adds any of them; whatever you enable lives in `server/providers.yaml`, and this checkout ships with exactly one (`dahl`)
 - **One key for everything** — point any OpenAI-compatible tool at one URL
 - **Multiple keys per provider** — paste ten keys for one source and the gateway rotates them: a
   quota-exhausted key is isolated on its own and the next one is tried instantly, all silently

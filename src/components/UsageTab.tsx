@@ -161,10 +161,10 @@ export function UsageTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity className="w-5 h-5 text-primary-2" /> Usage
-            <span className="badge">last 24h</span>
+            <Activity className="w-5 h-5 text-primary-2" /> الاستهلاك
+            <span className="badge">آخر 24 ساعة</span>
           </h2>
-          <p className="text-xs text-ink-dim mt-0.5">Token consumption and request distribution</p>
+          <p className="text-xs text-ink-dim mt-0.5">استهلاك الرموز وتوزّع الطلبات على المزوّدين</p>
         </div>
       </div>
 
@@ -174,19 +174,19 @@ export function UsageTab() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="card">
           <div className="flex items-center gap-2 text-ink-muted text-xs mb-2">
-            <Zap className="w-3.5 h-3.5" /> Total Tokens
+            <Zap className="w-3.5 h-3.5" /> إجمالي الرموز
           </div>
           <div className="text-2xl font-bold tabular-nums">{formatNumber(totalTokens)}</div>
         </div>
         <div className="card">
           <div className="flex items-center gap-2 text-ink-muted text-xs mb-2">
-            <TrendingUp className="w-3.5 h-3.5" /> Total Requests
+            <TrendingUp className="w-3.5 h-3.5" /> إجمالي الطلبات
           </div>
           <div className="text-2xl font-bold tabular-nums">{formatNumber(totalReqs)}</div>
         </div>
         <div className="card">
           <div className="flex items-center gap-2 text-ink-muted text-xs mb-2">
-            <Activity className="w-3.5 h-3.5" /> Avg / Request
+            <Activity className="w-3.5 h-3.5" /> متوسط الرموز / طلب
           </div>
           <div className="text-2xl font-bold tabular-nums">
             {totalReqs > 0 ? formatNumber(Math.round(totalTokens / totalReqs)) : '—'}
@@ -196,10 +196,10 @@ export function UsageTab() {
 
       {/* Per-provider breakdown */}
       <div className="card">
-        <h3 className="text-sm font-semibold mb-3 text-ink-muted">By Provider</h3>
+        <h3 className="text-sm font-semibold mb-3 text-ink-muted">حسب المزوّد</h3>
         {usage.length === 0 ? (
           <div className="text-center py-8 text-ink-muted text-sm">
-            No usage data yet. Send a request to see stats.
+            لا استهلاك مسجّل بعد — أرسل طلباً لتظهر الإحصاءات.
           </div>
         ) : (
           <div className="space-y-2.5">
@@ -215,8 +215,8 @@ export function UsageTab() {
                       {formatNumber(u.tokens)}
                     </div>
                   </div>
-                  <span className="text-ink-muted text-xs tabular-nums text-right">
-                    {u.requests} {u.requests === 1 ? 'req' : 'reqs'}
+                  <span className="text-ink-muted text-xs tabular-nums text-end">
+                    {u.requests} {u.requests === 1 ? 'طلب' : 'طلبات'}
                   </span>
                 </div>
               </div>
@@ -229,15 +229,15 @@ export function UsageTab() {
         <div className="card text-xs">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
-              <div className="text-ink-dim uppercase tracking-wider text-[10px] mb-1">Total</div>
+              <div className="text-ink-dim tracking-wide text-[11px] mb-1">الإجمالي</div>
               <div className="text-lg font-bold tabular-nums">{formatNumber(stats.total)}</div>
             </div>
             <div>
-              <div className="text-ink-dim uppercase tracking-wider text-[10px] mb-1">Success</div>
+              <div className="text-ink-dim tracking-wide text-[11px] mb-1">ناجحة</div>
               <div className="text-lg font-bold tabular-nums text-ok">{formatNumber(stats.success)}</div>
             </div>
             <div>
-              <div className="text-ink-dim uppercase tracking-wider text-[10px] mb-1">Errors</div>
+              <div className="text-ink-dim tracking-wide text-[11px] mb-1">أخطاء</div>
               <div className="text-lg font-bold tabular-nums text-bad">{formatNumber(stats.error)}</div>
             </div>
           </div>

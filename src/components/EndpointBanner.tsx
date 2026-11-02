@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Copy, Check, Plus, Trash2, Loader2, Link2, Activity, RefreshCw, BarChart3 } from 'lucide-react';
 import { api, KeyStats } from '../lib/api';
 import { timeAgo, cn } from '../lib/utils';
+import { ConfirmDialog, Modal, Spinner } from './ui';
 
 const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
 
@@ -16,7 +17,7 @@ function TokenBar({ label, value, max }: { label: string; value: number; max: nu
       <div className="flex-1 h-3.5 bg-surface-2 rounded overflow-hidden border border-line">
         <div className="h-full bg-primary/70" style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[10px] font-mono text-ink w-16 text-right shrink-0">{fmt(value)}</span>
+      <span className="text-[11px] font-mono text-ink w-16 text-end shrink-0">{fmt(value)}</span>
     </div>
   );
 }
@@ -46,7 +47,7 @@ function Sparkline({ series }: { series: Array<{ ts: number; n: number }> }) {
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <div className="flex items-center justify-between mt-1 text-[9px] font-mono text-ink-dim">
+      <div className="flex items-center justify-between mt-1 text-[11px] font-mono text-ink-dim">
         <span>{timeAgo(series[0].ts)}</span>
         <span>الآن</span>
       </div>
@@ -64,6 +65,10 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
   // المفتاح الكامل يُعرض مرة واحدة عند الإنشاء/إعادة التوليد — بعدها لا يمكن
   // استرجاعه (الخادم يخزّن hash فقط). هذا هو سلوك مزودات API الحقيقية.
   const [freshKey, setFreshKey] = useState<{ key: string; note: string } | null>(null);
+  // حوارات منبثقة بدل prompt/confirm الأصلية (تُحجب في بعض المتصفحات وتكسر RTL)
+  const [namingKey, setNamingKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState('my-key');
+  const [ask, setAsk] = useState<null | { kind: 'regen' | 'delete'; id: number; name: string }>(null);
 
   const baseUrl = data?.baseUrl || '';
   const keys = data?.keys || [];
@@ -72,21 +77,22 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
     try {
       await navigator.clipboard.writeText(text);
       setCopied(label);
-      onToast(`${label} copied`, 'success');
+      onToast(`نُسخ ${label}`, 'success');
       setTimeout(() => setCopied(null), 1500);
     } catch {
-      onToast('Copy failed', 'error');
+      onToast('تعذّر النسخ إلى الحافظة', 'error');
     }
   };
 
   const create = async () => {
-    const name = prompt('Name this key (e.g. cursor, codex, my-app):', 'my-key');
+    const name = newKeyName.trim();
     if (!name) return;
+    setNamingKey(false);
     setCreating(true);
     try {
       const k = await api.createKey(name);
       setFreshKey({ key: k.key, note: `المفتاح الجديد "${name}"` });
-      onToast('Unified API key created', 'success');
+      onToast('أُنشئ مفتاح API الموحّد', 'success');
       qc.invalidateQueries({ queryKey: ['keys'] });
     } catch (e: any) {
       onToast(e.message, 'error');
@@ -96,12 +102,12 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
   };
 
   const regenerate = async (id: number, name: string) => {
-    if (!confirm(`Regenerate key "${name}"?\n\nالقيمة القديمة رح تبطل مباشرة — كل أداة تستخدمها لازم تحدّثها.`)) return;
+    setAsk(null);
     setRegenId(id);
     try {
       const k = await api.regenerateKey(id);
       setFreshKey({ key: k.key, note: `المفتاح بعد إعادة التوليد "${name}"` });
-      onToast('Key regenerated — update your tools', 'success');
+      onToast('أُعيد توليد المفتاح — حدّث أدواتك', 'success');
       qc.invalidateQueries({ queryKey: ['keys'] });
       if (activeId === id) qc.invalidateQueries({ queryKey: ['key-stats', id] });
     } catch (e: any) {
@@ -112,11 +118,11 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
   };
 
   const remove = async (id: number, name: string) => {
-    if (!confirm(`Delete key "${name}"?\n\nTools using it will stop working.`)) return;
+    setAsk(null);
     try {
       await api.deleteKey(id);
       if (activeId === id) setActiveId(null);
-      onToast('Key deleted', 'success');
+      onToast('حُذف المفتاح', 'success');
       qc.invalidateQueries({ queryKey: ['keys'] });
     } catch (e: any) {
       onToast(e.message, 'error');
@@ -130,12 +136,12 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold">Unified Endpoint</h2>
-          <span className="badge badge-primary">one key · all providers</span>
+          <h2 className="text-sm font-semibold">نقطة النهاية الموحّدة</h2>
+          <span className="badge badge-primary">مفتاح واحد · كل المزوّدين</span>
         </div>
-        <button className="btn btn-sm btn-primary" onClick={create} disabled={creating}>
+        <button className="btn btn-sm btn-primary" onClick={() => { setNewKeyName('my-key'); setNamingKey(true); }} disabled={creating}>
           {creating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-          Generate Key
+          توليد مفتاح
         </button>
       </div>
 
@@ -152,11 +158,11 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
             </code>
             <button
               className="btn btn-sm btn-primary"
-              onClick={() => copy(freshKey.key, 'Key')}
-              title="Copy key"
+              onClick={() => copy(freshKey.key, 'المفتاح')}
+              title="انسخ المفتاح"
             >
-              {copied === 'Key' ? <Check className="w-3 h-3 text-ok" /> : <Copy className="w-3 h-3" />}
-              Copy
+              {copied === 'المفتاح' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              نسخ
             </button>
             <button className="btn btn-sm" onClick={() => setFreshKey(null)}>تم</button>
           </div>
@@ -166,27 +172,27 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       {/* URL الجامع */}
       <div className="space-y-2">
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold">Base URL</label>
+          <label className="text-[11px] tracking-wider text-ink-dim font-semibold">عنوان الأساس (Base URL)</label>
           <div className="flex items-center gap-2 mt-1">
-            <code className="flex-1 bg-surface-2 border border-line rounded-lg px-3 py-2 text-xs text-ink font-mono truncate">
+            <code className="flex-1 bg-surface-2 border border-line rounded-lg px-3 py-2 text-xs text-ink font-mono truncate" dir="ltr">
               {baseUrl || 'http://localhost:3001'}/v1
             </code>
             <button
               className="btn btn-sm"
-              onClick={() => copy(`${baseUrl}/v1`, 'URL')}
-              title="Copy URL"
+              onClick={() => copy(`${baseUrl}/v1`, 'العنوان')}
+              title="انسخ العنوان"
             >
-              {copied === 'URL' ? <Check className="w-3 h-3 text-ok" /> : <Copy className="w-3 h-3" />}
+              {copied === 'العنوان' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
             </button>
           </div>
         </div>
 
         {/* المفاتيح */}
         {isLoading ? (
-          <div className="text-xs text-ink-dim py-2">loading keys…</div>
+          <div className="text-xs text-ink-dim py-2">جارٍ تحميل المفاتيح…</div>
         ) : keys.length === 0 ? (
           <div className="text-xs text-ink-dim py-2">
-            No keys yet — localhost is open. Generate one to protect this endpoint when exposed.
+            لا مفاتيح بعد — localhost مفتوح. ولّد مفتاحاً لحماية النقطة عند تعريضها.
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -195,11 +201,11 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
                 <div className="flex items-center gap-2 bg-surface-2 border border-line rounded-lg px-3 py-2">
                   <span className="text-[10px] text-ink-muted font-medium w-20 truncate" title={k.name}>{k.name}</span>
                   {/* البصمة فقط — المفتاح الكامل يُعرض مرة واحدة عند إنشائه */}
-                  <code className="flex-1 text-xs text-ink font-mono truncate" title="بصمة المفتاح — القيمة الكاملة عند الإنشاء فقط">
+                  <code className="flex-1 text-xs text-ink font-mono truncate" dir="ltr" title="بصمة المفتاح — القيمة الكاملة عند الإنشاء فقط">
                     {mask(k.key as string)}
                   </code>
-                  <span className="text-[10px] text-ink-dim whitespace-nowrap">
-                    {k.requests || 0} reqs
+                  <span className="text-[11px] text-ink-dim whitespace-nowrap">
+                    {k.requests || 0} طلب
                     {k.last_used ? ` · ${timeAgo(k.last_used as number)}` : ''}
                   </span>
                   <button
@@ -211,7 +217,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
-                    onClick={() => regenerate(k.id as number, k.name as string)}
+                    onClick={() => setAsk({ kind: 'regen', id: k.id as number, name: k.name as string })}
                     disabled={regenId === k.id}
                     title="إعادة توليد المفتاح (يلغي القديم ويعرض الجديد مرة واحدة)"
                   >
@@ -219,8 +225,8 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
                   </button>
                   <button
                     className="btn btn-sm btn-danger"
-                    onClick={() => remove(k.id as number, k.name as string)}
-                    title="Delete key"
+                    onClick={() => setAsk({ kind: 'delete', id: k.id as number, name: k.name as string })}
+                    title="حذف المفتاح"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -234,12 +240,53 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       </div>
 
       {/* اختصار الاستخدام */}
-      <div className="mt-3 pt-3 border-t border-line/50 flex items-center gap-1.5 text-[11px] text-ink-dim">
+      <div className="mt-3 pt-3 border-t border-line/50 flex items-center gap-1.5 text-[11px] text-ink-dim flex-wrap">
         <Link2 className="w-3 h-3" />
-        Point any OpenAI-compatible tool here:
-        <code className="text-primary-2 font-mono">base URL</code> +
-        <code className="text-primary-2 font-mono">key</code>
+        وجّه أي أداة متوافقة مع OpenAI إلى هنا:
+        <code className="text-primary-2 font-mono" dir="ltr">base URL</code> +
+        <code className="text-primary-2 font-mono" dir="ltr">key</code>
       </div>
+
+      {/* تسمية مفتاح جديد */}
+      {namingKey && (
+        <Modal
+          title="اسم المفتاح"
+          onClose={() => setNamingKey(false)}
+          footer={
+            <>
+              <button type="button" className="btn btn-sm" onClick={() => setNamingKey(false)}>إلغاء</button>
+              <button type="button" className="btn btn-sm btn-primary" onClick={create} disabled={!newKeyName.trim() || creating}>
+                {creating ? <Spinner size="sm" /> : 'أنشئ المفتاح'}
+              </button>
+            </>
+          }
+        >
+          <label className="text-[11px] text-ink-dim font-semibold">
+            اسم يميّز الأداة المستخدمة (cursor، codex، my-app…)
+          </label>
+          <input
+            className="input mt-1.5"
+            value={newKeyName}
+            onChange={e => setNewKeyName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') create(); }}
+            placeholder="my-key"
+            maxLength={64}
+          />
+        </Modal>
+      )}
+
+      {ask && (
+        <ConfirmDialog
+          title={ask.kind === 'regen' ? `إعادة توليد المفتاح "${ask.name}"؟` : `حذف المفتاح "${ask.name}"؟`}
+          message={ask.kind === 'regen'
+            ? 'القيمة القديمة تبطل مباشرة — كل أداة تستخدمها يجب أن تحدّثها.'
+            : 'الأدوات التي تستخدمه ستتوقف عن العمل فوراً.'}
+          confirmLabel={ask.kind === 'regen' ? 'أعد التوليد' : 'حذف'}
+          danger
+          onCancel={() => setAsk(null)}
+          onConfirm={() => (ask.kind === 'regen' ? regenerate(ask.id, ask.name) : remove(ask.id, ask.name))}
+        />
+      )}
     </div>
   );
 }
@@ -290,26 +337,26 @@ function KeyStatsPanel({ keyId }: { keyId: number }) {
         ].map(s => (
           <div key={s.label} className="text-center bg-surface-2 rounded-lg py-1.5 border border-line">
             <div className="text-sm font-mono font-semibold text-ink">{s.value}</div>
-            <div className="text-[9px] text-ink-dim">{s.label}</div>
+            <div className="text-[11px] text-ink-dim">{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* الرسم الزمني */}
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-ink-muted font-semibold mb-1">النشاط الزمني</div>
+        <div className="text-[11px] text-ink-muted font-semibold mb-1">النشاط الزمني</div>
         <Sparkline series={data.series} />
       </div>
 
       {/* الرموز لكل نموذج */}
       {data.models.length > 0 && (
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-ink-muted font-semibold mb-1.5">الرموز حسب النموذج</div>
+          <div className="text-[11px] text-ink-muted font-semibold mb-1.5">الرموز حسب النموذج</div>
           <div className="space-y-1.5">
             {data.models.map(m => (
               <div key={m.model} className="group">
                 <TokenBar label={m.model} value={m.tokens} max={maxTokens} />
-                <div className="flex items-center gap-3 text-[9px] text-ink-dim pl-[5.25rem] opacity-70">
+                <div className="flex items-center gap-3 text-[11px] text-ink-dim ps-[7.5rem] opacity-80">
                   <span>{m.requests} طلب</span>
                   <span>·</span>
                   <span>دخل {fmt(m.prompt)} / خرج {fmt(m.completion)}</span>

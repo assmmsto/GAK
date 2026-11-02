@@ -105,7 +105,7 @@ export function AgentsTab({ showToast }: { showToast: (m: string, t?: 'info' | '
         const changed = c.added + c.reactivated + c.authority + c.withdrawn;
         showToast(
           changed > 0
-            ? `مزامنة: ${c.added} جديد · ${c.withdrawn} مسحوب · ${c.authority} تغيّرسلطة (${r.durationMs}ms)`
+            ? `مزامنة: ${c.added} جديد · ${c.withdrawn} مسحوب · ${c.authority} تغيّرت سلطته (${r.durationMs} م.ث)`
             : `لا تغيير — ${r.desiredKeys} مفتاحاً متسقاً مع المصادر (${r.durationMs}ms)`,
           c.error > 0 ? 'error' : 'success'
         );

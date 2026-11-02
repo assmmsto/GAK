@@ -1418,19 +1418,24 @@ const RETENTION_INTERVAL_MS = numOr(process.env.AGENT_RETENTION_INTERVAL_MS, 6 *
 const EVENTS_RETENTION_DAYS = numOr(process.env.RETENTION_EVENTS_DAYS, 30);
 const USAGE_RETENTION_DAYS = numOr(process.env.RETENTION_USAGE_DAYS, 90);
 const ROTATIONS_KEEP = numOr(process.env.RETENTION_ROTATIONS_KEEP, 5000);
+// المفتاح الذي لم يُستخدم هذا العدد من الأيام يُحذف تلقائياً (انظر db.prune).
+const IDLE_KEY_DAYS = numOr(process.env.RETENTION_IDLE_KEY_DAYS, 30);
 scheduler.register({
   name: 'retention',
   intervalMs: RETENTION_INTERVAL_MS,
   run: async () => {
     const r = await db.prune({
-      eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS, rotationsKeep: ROTATIONS_KEEP
+      eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS, rotationsKeep: ROTATIONS_KEEP,
+      idleKeyDays: IDLE_KEY_DAYS
     });
-    const removed = r.events + r.usage + r.rotations + r.probes;
+    const removed = r.events + r.usage + r.rotations + r.probes + r.apiKeys;
     if (removed > 0) {
       await db.logEvent('agents.retention', {
         status: 'success',
         meta: { ...r, eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS }
       }).catch(() => {});
+      // الحذف لا يقلّص الملف — VACUUM يعيد المساحة. بعد كل حذف فعلي فقط (لا كل دورة).
+      await db.vacuum().catch(() => {});
     }
     return { ok: true, detail: { ...r, removed } };
   }

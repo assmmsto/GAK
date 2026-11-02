@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Plus, Trash2, Power, PowerOff, Loader2, Server, Globe, Key, Layers, KeyRound, Pencil, ClipboardPaste, KeySquare } from 'lucide-react';
 import { api, type Provider } from '../lib/api';
-import { StatusDot, TierBadge } from './ui';
+import { StatusDot, TierBadge, ConfirmDialog } from './ui';
 import { AddProviderModal } from './AddProviderModal';
 import { KeysModal } from './KeysModal';
 import { ImportModal } from './ImportModal';
@@ -19,29 +19,33 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
     setTesting(id);
     try {
       const r = await api.test(id);
-      onToast(`${id}: ${r.ok ? `✓ ${r.latencyMs}ms` : '✗ ' + (r.error || 'failed')}`, r.ok ? 'success' : 'error');
+      onToast(`${id}: ${r.ok ? `✓ ${r.latencyMs} م.ث` : '✗ ' + (r.error || 'فشل')}`, r.ok ? 'success' : 'error');
       qc.invalidateQueries({ queryKey: ['providers'] });
     } catch (e: any) { onToast(e.message, 'error'); }
     finally { setTesting(null); }
   };
 
   const testAll = async () => {
-    onToast('Testing all providers…', 'info');
+    onToast('جارٍ فحص كل المزوّدين…', 'info');
     try {
       const r = await api.testAll();
       const up = r.results.filter(x => x.ok).length;
-      onToast(`${up}/${r.results.length} providers up`, up > 0 ? 'success' : 'error');
+      onToast(`${up}/${r.results.length} مزوّد متاح`, up > 0 ? 'success' : 'error');
       qc.invalidateQueries({ queryKey: ['providers'] });
     } catch (e: any) { onToast(e.message, 'error'); }
   };
 
   const remove = async (id: string) => {
+    setAskDelete(id);
+  };
+
+  const runRemove = async (id: string) => {
     // S12: الرسالة كانت تقول إن المفاتيح تُحذف بينما هي تبقى في القاعدة (بلا حذف).
     // الآن تقول الحقيقة: الحذف النهائي للمفاتيح يتطلّب طلباً صريحاً `?purgeKeys=1`.
-    if (!confirm(`Delete "${id}"?\n\nيُحذف من providers.yaml ويُفرَّغ سطر متغيّر البيئة.\nمفاتيحه تبقى محفوظة في قاعدة البيانات (تُستعاد لو أعدت إضافة المزوّد).`)) return;
+    setAskDelete(null);
     try {
       await api.deleteProvider(id);
-      onToast(`Deleted ${id} — المفاتيح باقية في القاعدة`, 'success');
+      onToast(`حُذف ${id} — المفاتيح باقية في القاعدة`, 'success');
       qc.invalidateQueries({ queryKey: ['providers'] });
     } catch (e: any) { onToast(e.message, 'error'); }
   };
@@ -49,11 +53,13 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
   const toggle = async (id: string, currentlyEnabled: boolean) => {
     try {
       await api.toggleProvider(id, !currentlyEnabled);
-      onToast(`${id} ${currentlyEnabled ? 'disabled' : 'enabled'}`, 'success');
+      onToast(`${id} ${currentlyEnabled ? 'عُطّل' : 'فُعّل'}`, 'success');
       qc.invalidateQueries({ queryKey: ['providers'] });
       qc.invalidateQueries({ queryKey: ['status'] });
     } catch (e: any) { onToast(e.message, 'error'); }
   };
+
+  const [askDelete, setAskDelete] = useState<string | null>(null);
 
   const [editTarget, setEditTarget] = useState<{ id: string; name: string; baseUrl: string; tier: number; hasKey: boolean } | null>(null);
   const [showImport, setShowImport] = useState(false);
@@ -79,21 +85,21 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Server className="w-5 h-5 text-primary-2" />
-            Providers
+            المزوّدون
             <span className="badge">{providers.length}</span>
-            <span className="badge badge-success">{enabledCount} active</span>
+            <span className="badge badge-success">{enabledCount} مُفعّل</span>
           </h2>
-          <p className="text-xs text-ink-dim mt-0.5">Add OpenAI-compatible endpoints and route through them</p>
+          <p className="text-xs text-ink-dim mt-0.5">أضف نقاط نهاية متوافقة مع OpenAI ووجّه الطلبات عبرها</p>
         </div>
         <div className="flex gap-2">
           <button className="btn" onClick={testAll}>
-            <Layers className="w-3.5 h-3.5" /> Test All
+            <Layers className="w-3.5 h-3.5" /> افحص الكل
           </button>
           <button className="btn" onClick={() => setShowImport(true)} title="الصق عدة مفاتيح مرة واحدة">
             <ClipboardPaste className="w-3.5 h-3.5" /> استيراد جماعي
           </button>
           <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
-            <Plus className="w-4 h-4" /> Add Provider
+            <Plus className="w-4 h-4" /> أضف مزوّداً
           </button>
         </div>
       </div>
@@ -103,10 +109,10 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
           <div className="inline-flex p-3 rounded-2xl bg-primary/10 mb-3">
             <Server className="w-8 h-8 text-primary" />
           </div>
-          <h3 className="text-base font-semibold mb-1">No providers yet</h3>
-          <p className="text-sm text-ink-muted mb-4">Add your first AI provider to start routing requests</p>
+          <h3 className="text-base font-semibold mb-1">لا مزوّدين بعد</h3>
+          <p className="text-sm text-ink-muted mb-4">أضف أول مزوّد ذكاء اصطناعي لتبدأ توجيه الطلبات</p>
           <button onClick={() => setShowAdd(true)} className="btn btn-primary">
-            <Plus className="w-4 h-4" /> Add Provider
+            <Plus className="w-4 h-4" /> أضف مزوّداً
           </button>
         </div>
       ) : (
@@ -129,7 +135,7 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
         onClose={closeModal}
         onAdded={async () => {
           await qc.refetchQueries({ queryKey: ['providers'] });
-          onToast(editTarget ? 'Provider updated' : 'Provider added successfully', 'success');
+          onToast(editTarget ? 'حُدّث المزوّد' : 'أُضيف المزوّد بنجاح', 'success');
           setEditTarget(null);
           closeModal();
         }}
@@ -143,6 +149,17 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
           providerName={keysFor.name}
           onClose={() => setKeysFor(null)}
           onToast={onToast}
+        />
+      )}
+      {askDelete && (
+        <ConfirmDialog
+          title={`حذف "${askDelete}"؟`}
+          message="يُحذف من providers.yaml ويُفرَّغ سطر متغيّر البيئة."
+          detail="مفاتيحه تبقى محفوظة في قاعدة البيانات (تُستعاد لو أعدت إضافة المزوّد)."
+          confirmLabel="احذف المزوّد"
+          danger
+          onCancel={() => setAskDelete(null)}
+          onConfirm={() => runRemove(askDelete)}
         />
       )}
     </div>
@@ -164,10 +181,10 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
           <div className="flex items-center gap-2 mb-1">
             <StatusDot status={p.status} />
             <h3 className="font-semibold text-ink truncate">{p.name}</h3>
-            {p.free && <span className="badge badge-success">free</span>}
-            {!isEnabled && <span className="badge badge-warning">disabled</span>}
+            {p.free && <span className="badge badge-success">مجاني</span>}
+            {!isEnabled && <span className="badge badge-warning">معطَّل</span>}
           </div>
-          <code className="text-[10px] text-ink-dim font-mono">{p.id}</code>
+          <code className="text-[11px] text-ink-dim font-mono" dir="ltr">{p.id}</code>
         </div>
         <TierBadge tier={p.tier} />
       </div>
@@ -180,10 +197,10 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
         <div className="flex items-center gap-2">
           <Key className={cn('w-3 h-3 shrink-0', p.hasKey ? 'text-ok' : p.keyless ? 'text-primary-2' : 'text-warn')} />
           <span className={cn('font-medium', p.hasKey ? 'text-ok' : p.keyless ? 'text-primary-2' : 'text-warn')}>
-            {p.hasKey ? 'authenticated' : p.keyless ? 'keyless' : 'no API key'}
+            {p.hasKey ? 'موثَّق' : p.keyless ? 'بلا مفتاح' : 'لا يوجد مفتاح API'}
           </span>
           <span className="text-ink-dim">·</span>
-          <span className="text-ink-muted">{p.lastChecked ? timeAgo(p.lastChecked) : 'untested'}</span>
+          <span className="text-ink-muted">{p.lastChecked ? timeAgo(p.lastChecked) : 'لم يُفحص'}</span>
           {keyCount > 0 && (
             <>
               <span className="text-ink-dim">·</span>
@@ -203,8 +220,8 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
       )}
 
       <div className="grid grid-cols-6 gap-1.5 pt-3 border-t border-line/50">
-        <button className="btn btn-sm" onClick={onTest} disabled={testing}>
-          {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Test'}
+        <button className="btn btn-sm" onClick={onTest} disabled={testing} title="افحص الاتصال بهذا المزوّد">
+          {testing ? <Loader2 className="w-3 h-3 animate-spin" /> : 'افحص'}
         </button>
         <button
           className="btn btn-sm"
@@ -217,16 +234,16 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
         <button
           className={cn('btn btn-sm', !isEnabled && 'btn-ghost')}
           onClick={onToggle}
-          data-tooltip={isEnabled ? 'Disable' : 'Enable'}
-          title={isEnabled ? 'Disable — exclude from routing' : 'Enable — include in routing'}
+          data-tooltip={isEnabled ? 'تعطيل' : 'تفعيل'}
+          title={isEnabled ? 'تعطيل — استبعاد من التوجيه' : 'تفعيل — تضمين في التوجيه'}
         >
           {isEnabled ? <PowerOff className="w-3 h-3 text-warn" /> : <Power className="w-3 h-3 text-ok" />}
         </button>
         <button
           className="btn btn-sm btn-ghost"
           onClick={onEdit}
-          data-tooltip="Edit"
-          title="Edit (key/URL/tier)"
+          data-tooltip="تعديل"
+          title="تعديل (المفتاح/العنوان/الفئة)"
         >
           <Pencil className="w-3 h-3" />
         </button>
@@ -236,17 +253,17 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
             target="_blank"
             rel="noreferrer"
             className="btn btn-sm btn-ghost"
-            data-tooltip="Get API key"
-            title="Get API key"
+            data-tooltip="احصل على مفتاح"
+            title="احصل على مفتاح API"
           >
             <KeyRound className="w-3 h-3" />
           </a>
         ) : (
-          <span className="btn btn-sm btn-ghost opacity-30" title="No signup URL">
+          <span className="btn btn-sm btn-ghost opacity-30" title="لا يوجد رابط تسجيل">
             <KeyRound className="w-3 h-3" />
           </span>
         )}
-        <button className="btn btn-sm btn-danger" onClick={onDelete} data-tooltip="Delete" aria-label={`Delete ${p.id}`} title="Delete">
+        <button className="btn btn-sm btn-danger" onClick={onDelete} data-tooltip="حذف" aria-label={`احذف المزوّد ${p.id}`} title="احذف المزوّد">
           <Trash2 className="w-3 h-3" />
         </button>
       </div>
