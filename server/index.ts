@@ -1262,7 +1262,7 @@ app.delete('/api/probe/results', async (req, res) => {
 app.post('/api/probe/ping', async (req, res) => {
   const { baseUrl, apiKey } = req.body || {};
   if (!baseUrl) return res.status(400).json({ error: 'baseUrl required' });
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
   const t0 = Date.now();
   try {
@@ -1287,7 +1287,7 @@ app.post('/api/probe/ping', async (req, res) => {
 app.post('/api/probe/models', async (req, res) => {
   const { baseUrl, apiKey } = req.body || {};
   if (!baseUrl) return res.status(400).json({ error: 'baseUrl required' });
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
   try {
     const models = await fetchModels(check.url, apiKey || undefined);
@@ -1307,7 +1307,7 @@ app.post('/api/probe/connect', async (req, res) => {
   if (typeof model !== 'string' || model.length > MAX_MODEL_NAME_LEN) {
     return res.status(400).json({ error: `model name must be a string of at most ${MAX_MODEL_NAME_LEN} characters` });
   }
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
 
   try {
@@ -1461,7 +1461,7 @@ server.listen(Number(PORT), HOST, () => {  console.log(`🚀 Server running on h
 app.post('/api/providers/fetch-models', async (req, res) => {
   const { baseUrl, apiKey } = req.body || {};
   if (!baseUrl) return res.status(400).json({ error: 'baseUrl required' });
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
   try {
     const models = await fetchModels(check.url, apiKey || undefined);
@@ -1475,7 +1475,7 @@ app.post('/api/providers/fetch-models', async (req, res) => {
 app.post('/api/providers/test-connection', async (req, res) => {
   const { baseUrl, apiKey } = req.body || {};
   if (!baseUrl) return res.status(400).json({ error: 'baseUrl required' });
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ ok: false, error: check.error });
   try {
     const result = await testConnection(check.url, apiKey || undefined);
@@ -1699,7 +1699,7 @@ app.post('/api/providers/add', async (req, res) => {
   if (!id || !name || !baseUrl) return res.status(400).json({ error: 'id, name, and baseUrl required' });
   if (!validateId(id)) return res.status(400).json({ error: 'id must match ^[a-z0-9-]{2,32}$' });
   // العنوان يأتي من المستخدم → يمر من فلتر SSRF قبل أي طلب أو حفظ
-  const check = guardBaseUrl(baseUrl);
+  const check = await guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
   try {
     const yaml = readProvidersYaml();
@@ -1773,7 +1773,7 @@ app.patch('/api/providers/:id', async (req, res) => {
     if (body.name) updated.name = body.name;
     if (body.baseUrl) {
       // تعديل الرابط = مدخل مستخدم يصل لطبقة الشبكة → نفس فلتر الإضافة
-      const check = guardBaseUrl(body.baseUrl);
+      const check = await guardBaseUrl(body.baseUrl);
       if (!check.ok) return res.status(400).json({ error: check.error });
       updated.baseUrl = check.url.replace(/\/+$/, '');
     }

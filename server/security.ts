@@ -1,6 +1,8 @@
 // server/security.ts — أدوات أمنية مشتركة: تعقيم الأخطاء + ترويسات + حد المعدل
 // القاعدة: لا يُعاد نص خام من مزود/شبكة/استثناء إلى العميل أو السجل قبل تعقيمه.
 import { timingSafeEqual } from 'node:crypto';
+import { promises as dnsPromises } from 'node:dns';
+import { isIP } from 'node:net';
 
 const SENSITIVE_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9_-]{8,}/g,          // OpenAI / DeepSeek / generic
@@ -68,10 +70,14 @@ export function sanitizeErrorMessage(input: unknown, maxLen = 300): string {
 }
 
 // ===== ترويسات أمنية خفيفة (بدون اعتماد helmet) =====
+// CSP بلا 'unsafe-inline'/'unsafe-eval': بناء dist/ يبني سكربت ملفاً خارجياً
+// واحداً بلا inline (تحقق قبل القرار) — أي إضافة inline في الواجهة تكسر CSP.
+const CSP = "default-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 export function securityHeaders(_req: any, res: any, next: () => void) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Content-Security-Policy', CSP);
   // لا نكشف خادمنا: أخفِ X-Powered-By الافتراضي
   res.removeHeader('X-Powered-By');
   next();
@@ -144,14 +150,35 @@ export function isPrivateHost(hostname: string): boolean {
   return h === 'metadata.google.internal' || h.endsWith('.internal');
 }
 
+/**
+ * فحص عنوان واحد (مثلاً ناتج حل DNS) بنفس قواعد الحارس: 169.254 محجوب
+ * دائماً، والخاصات تتبع allowPrivate. نقية بلا شبكة — يجرّبها الاختبار مباشرةً.
+ * @returns سبب الرفض، أو null إن قُبل.
+ */
+export function checkResolvedAddress(address: string, allowPrivate: boolean): string | null {
+  const a = String(address ?? '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (/^169\.254\./.test(a)) return 'عنوان 169.254.x محجوب (نطاق البيانات الوصفية السحابية)';
+  if (isPrivateHost(a) && !allowPrivate) {
+    return `عنوان داخلي (${a}) محجوب. لخادم على شبكتك المحلية اضبط ALLOW_PRIVATE_HOSTS=1`;
+  }
+  return null;
+}
+
 export type UrlCheck = { ok: true; url: string } | { ok: false; error: string };
+
+/** مهلة حل DNS في الحارس: بلا حل ضمن المهلة يُرفض الرابط صراحةً (fail-closed). */
+const DNS_LOOKUP_TIMEOUT_MS = 5_000;
 
 /**
  * يتحقق من عنوان مزود قبل استخدامه في أي طلب.
  * @param opts.allowPrivate اسمح بعناوين RFC1918 (خادم استنتاج على شبكتك المحلية).
  *   ملاحظة: 169.254.x محجوب دائماً — لا يفتحه هذا الخيار.
+ *
+ * D-19 (تثبيت العنوان): حروف IP تُفحص كما هي، واسم المضيف يُحَل عبر DNS ثم
+ * يُفحص كل عنوان محلول بـ checkResolvedAddress — حتى لا يعبر اسم عام يحل إلى
+ * عنوان داخلي (DNS rebinding) حارس SSRF. فشل الحل أو تجاوز المهلة = رفض صريح.
  */
-export function validateBaseUrl(raw: unknown, opts: { allowPrivate?: boolean } = {}): UrlCheck {
+export async function validateBaseUrl(raw: unknown, opts: { allowPrivate?: boolean } = {}): Promise<UrlCheck> {
   const s = String(raw ?? '').trim();
   if (!s) return { ok: false, error: 'رابط المزود مطلوب' };
 
@@ -186,6 +213,34 @@ export function validateBaseUrl(raw: unknown, opts: { allowPrivate?: boolean } =
       ok: false,
       error: `عنوان داخلي (${u.hostname}) محجوب. لخادم على شبكتك المحلية اضبط ALLOW_PRIVATE_HOSTS=1`
     };
+  }
+
+  // D-19: اسم المضيف (وليس حرف IP) يُحَل عبر DNS ويُفحص كل عنوان محلول:
+  // اسم عام يحل إلى 127.0.0.1 أو 192.168.x (DNS rebinding) لا يعبر الحارس.
+  // حرفا IP لا يحتاجان حلّاً (فحصهما النصي أعلاه كافٍ)، والاسم الداخلي الذي
+  // صُرّح له عبر allowPrivate يبقى ضمن سماح الشبكة المحلية الواسع.
+  const bare = u.hostname.replace(/^\[|\]$/g, '');
+  if (!priv && isIP(bare) === 0) {
+    let resolved: { address: string }[];
+    try {
+      // dnsPromises.lookup لا يقبل signal — المهلة تُفرض بسباق صريح، والوعد
+      // المعلّق يُترك بلا انتظار (أقصره 5 ثوانٍ فلا يتراكم).
+      resolved = await Promise.race([
+        dnsPromises.lookup(u.hostname, { all: true }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('dns timeout')), DNS_LOOKUP_TIMEOUT_MS).unref()
+        ),
+      ]);
+    } catch {
+      return { ok: false, error: `تعذّر حل ${u.hostname} (DNS) — العناوين التي لا تُحَلّ تُرفض` };
+    }
+    if (!resolved.length) {
+      return { ok: false, error: `تعذّر حل ${u.hostname} (DNS) — لا عناوين` };
+    }
+    for (const { address } of resolved) {
+      const why = checkResolvedAddress(address, opts.allowPrivate === true);
+      if (why) return { ok: false, error: why };
+    }
   }
   return { ok: true, url: u.toString() };
 }

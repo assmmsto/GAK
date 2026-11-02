@@ -62,10 +62,11 @@ check('معرّفات الموجّه تُمرَّر للمحلّل', (() => {
 // 2) حارس العناوين (مضاد SSRF)
 // ============================================================
 group('services/url-guard');
-check('رابط عام يُقبل', guardBaseUrl('https://api.groq.com/openai/v1').ok);
-check('169.254 يُرفض', !guardBaseUrl('http://169.254.169.254/latest/meta-data').ok);
-check('http عام يُرفض', !guardBaseUrl('http://api.groq.com/v1').ok);
-check('نص ليس رابطاً يُرفض', !guardBaseUrl('not-a-url').ok);
+// D-19: guardBaseUrl يعيد وعداً الآن (يعدو DNS) — بلا await تصير كل التأكيدات صفرية
+check('رابط عام يُقبل', (await guardBaseUrl('https://api.groq.com/openai/v1')).ok);
+check('169.254 يُرفض', !(await guardBaseUrl('http://169.254.169.254/latest/meta-data')).ok);
+check('http عام يُرفض', !(await guardBaseUrl('http://api.groq.com/v1')).ok);
+check('نص ليس رابطاً يُرفض', !(await guardBaseUrl('not-a-url')).ok);
 
 // ============================================================
 // 3) تحويلات Anthropic ↔ OpenAI

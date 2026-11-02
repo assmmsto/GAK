@@ -14,7 +14,8 @@ import { EnvSecretSource, FileSecretSource } from './local-sources.js';
 const HTTP_TIMEOUT_MS = 12_000;
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_HOSTS === '1';
 
-function checkUrl(raw: string): { ok: true; url: string } | { ok: false; error: string } {
+// D-19: validateBaseUrl تعدو DNS قبل السماح — checkUrl تعدو وعدةً ويُستدعى بـ await.
+async function checkUrl(raw: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   return validateBaseUrl(raw, { allowPrivate: ALLOW_PRIVATE });
 }
 
@@ -63,7 +64,7 @@ export class VaultSecretSource implements KeySource {
   async fetch(signal: AbortSignal): Promise<{ entries: SecretEntry[]; error?: string }> {
     const c = this.cfg();
     if (!c.addr || !c.token) return { entries: [], error: 'Vault غير مُهيَّأ' };
-    const check = checkUrl(c.addr);
+    const check = await checkUrl(c.addr);
     if (!check.ok) return { entries: [], error: `عنوان Vault مرفوض: ${check.error}` };
 
     const url = `${check.url}/v1/${c.mount}/data/${c.path}`;
@@ -123,7 +124,7 @@ export class DopplerSecretSource implements KeySource {
     const c = this.cfg();
     if (!c.token) return { entries: [], error: 'Doppler غير مُهيَّأ' };
     // العنوان ثابت (خدمة معروفة) — نمرّره بالحارس رغم ذلك: قاعدة واحدة بلا استثناء
-    const check = checkUrl('https://api.doppler.com');
+    const check = await checkUrl('https://api.doppler.com');
     if (!check.ok) return { entries: [], error: `عنوان Doppler مرفوض: ${check.error}` };
 
     const qs = new URLSearchParams({ format: 'json', include_dynamic_secrets: 'false' });
@@ -177,7 +178,7 @@ export class OnePasswordSecretSource implements KeySource {
   async fetch(signal: AbortSignal): Promise<{ entries: SecretEntry[]; error?: string }> {
     const c = this.cfg();
     if (!c.host || !c.token) return { entries: [], error: '1Password Connect غير مُهيَّأ' };
-    const check = checkUrl(c.host);
+    const check = await checkUrl(c.host);
     if (!check.ok) return { entries: [], error: `عنوان 1Password مرفوض: ${check.error}` };
 
     const url = `${check.url}/v1/vaults/${encodeURIComponent(c.vault)}/items/${encodeURIComponent(c.item)}`;

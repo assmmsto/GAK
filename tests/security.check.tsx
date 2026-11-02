@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as yamlParse } from 'yaml';
-import { validateBaseUrl, isPrivateHost, isLoopbackHost, sanitizeErrorMessage, rateLimit } from '../server/security';
+import { validateBaseUrl, checkResolvedAddress, isPrivateHost, isLoopbackHost, sanitizeErrorMessage, rateLimit, securityHeaders } from '../server/security';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
@@ -27,14 +27,16 @@ function group(title: string): void {
 // ============================================================
 group('فلتر عناوين المزودات (SSRF)');
 
-for (const u of [
+// D-19: الحارس صار غير متزامن (يعدو DNS) — كل نداء يجب أن يُنتظر،
+// وإلا فالوعد الناتج صادق دائماً وتصير هذه التأكيدات تمرّ على لا شيء.
+const awaited = await Promise.all([
   'https://api.groq.com/openai/v1',
   'https://api.together.ai/v1',
   'https://generativelanguage.googleapis.com/v1beta/openai',
   'http://localhost:11434/v1',      // Ollama محلي
   'http://127.0.0.1:1234/v1',       // LM Studio محلي
-]) {
-  const r = validateBaseUrl(u);
+].map(async (u) => [u, await validateBaseUrl(u)] as const));
+for (const [u, r] of awaited) {
   check(`يُقبل: ${u}`, r.ok, r.ok ? '' : r.error);
 }
 
@@ -51,13 +53,27 @@ const denyCases: Array<[string, string]> = [
   ['', 'فراغ'],
 ];
 for (const [u, why] of denyCases) {
-  const r = validateBaseUrl(u);
+  const r = await validateBaseUrl(u);
   check(`يُرفض (${why}): ${u || '∅'}`, !r.ok, r.ok ? 'قُبل خطأً' : '');
 }
 
 // 169.254 يبقى محجوباً حتى مع السماح بالشبكة المحلية — لا استثناء
-check('169.254 محجوب رغم allowPrivate', !validateBaseUrl('http://169.254.169.254/', { allowPrivate: true }).ok);
-check('RFC1918 يُقبل عند allowPrivate', validateBaseUrl('http://192.168.1.50:8000/v1', { allowPrivate: true }).ok);
+check('169.254 محجوب رغم allowPrivate', !(await validateBaseUrl('http://169.254.169.254/', { allowPrivate: true })).ok);
+check('RFC1918 يُقبل عند allowPrivate', (await validateBaseUrl('http://192.168.1.50:8000/v1', { allowPrivate: true })).ok);
+
+// ---- D-19: تثبيت العنوان عبر DNS (سدّ DNS rebinding) ----
+// الإصلاح نفسه: عنوان مُحَلّ إلى داخل يُرفض، واسم لا يُحَلّ يُرفض (fail-closed).
+check('عنوان محلول 169.254 مرفوض دائماً', checkResolvedAddress('169.254.169.254', true) !== null);
+check('عنوان محلول داخلي مرفوض بلا allowPrivate', checkResolvedAddress('192.168.1.7', false) !== null);
+check('عنوان محلول داخلي مقبول مع allowPrivate', checkResolvedAddress('192.168.1.7', true) === null);
+check('عنوان محلول عام مقبول', checkResolvedAddress('8.8.8.8', false) === null);
+// اسم لا يُحلّ ⇒ رفض صريح، لا تمرير
+const nx = await validateBaseUrl('http://this-host-does-not-exist-d19.invalid/v1');
+check('اسم لا يُحَلّ يُرفض (fail-closed)', !nx.ok, nx.ok ? 'قُبل خطأً' : '');
+// اسم عام حقيقي يُحَلّ ويُفحص كل عنواناته ثم يُقبل
+const okNamed = await validateBaseUrl('https://api.groq.com/openai/v1');
+check('اسم عام قابل للحل يُقبل بعد فحص عناوينه', okNamed.ok, okNamed.ok ? '' : okNamed.error);
+check('validateBaseUrl صار غير متزامن (حارس D-19 قائم)', /export async function validateBaseUrl/.test(read('server/security.ts')));
 check('isLoopbackHost صحيح', isLoopbackHost('localhost') && isLoopbackHost('127.0.0.1') && !isLoopbackHost('api.groq.com'));
 check('isPrivateHost(172.16/12) صحيح', isPrivateHost('172.16.0.1') && isPrivateHost('172.31.255.255') && !isPrivateHost('172.32.0.1'));
 check('العنوان العام ليس داخلياً', !isPrivateHost('8.8.8.8') && !isPrivateHost('api.groq.com'));
@@ -83,6 +99,23 @@ check('طبّق rateLimit على /v1', /app\.use\('\/v1',\s*rateLimit\(/.test(in
 check('طبّق rateLimit على /api/probe', /app\.use\('\/api\/probe',\s*rateLimit\(/.test(indexSrc));
 check('يستخدم sanitizeErrorMessage', (indexSrc.match(/sanitizeErrorMessage\(/g) || []).length >= 3);
 check('معالج أخطاء JSON موجود', /entity\.parse\.failed/.test(indexSrc));
+
+// ---- D-20: ترويسة CSP تُضبط فعلياً (لا رمز ميت) ----
+{
+  const headers: Record<string, string> = {};
+  const fakeRes = {
+    setHeader: (k: string, v: string) => { headers[k.toLowerCase()] = v; },
+    removeHeader: (k: string) => { delete headers[k.toLowerCase()]; },
+  };
+  securityHeaders({} as any, fakeRes as any, () => { });
+  const csp = headers['content-security-policy'] ?? '';
+  check('CSP مضبوط في securityHeaders', csp.length > 0, 'غائب');
+  check("CSP يبدأ بـ default-src 'self'", /^default-src 'self'/.test(csp), csp);
+  check("CSP بلا 'unsafe-inline'", !/unsafe-inline/.test(csp), csp);
+  check("CSP بلا 'unsafe-eval'", !/unsafe-eval/.test(csp), csp);
+  check('CSP يمنع التأطير (frame-ancestors none)', /frame-ancestors 'none'/.test(csp), csp);
+  check('الترويسات القديمة باقية', headers['x-frame-options'] === 'DENY' && headers['x-content-type-options'] === 'nosniff');
+}
 
 
 // كل مسار يقرأ baseUrl من جسم الطلب يجب أن يحرسه قبل أي استخدام
