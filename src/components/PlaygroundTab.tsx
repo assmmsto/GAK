@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Sparkles, Send, Loader2, MessageSquare, User, Bot, Cpu, Hash, Copy, Check, Plug } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, storedUiKey } from '../lib/api';
 import { cn } from '../lib/utils';
 
 const QUICK_PROMPTS = [
@@ -25,12 +25,16 @@ export function PlaygroundTab() {
 
   // --- التوليد التلقائي لبيانات الاتصال ---
   const { data: keyData } = useQuery({ queryKey: ['keys'], queryFn: () => api.keys(), refetchInterval: 8000 });
-  const quickKey = keyData?.keys?.[0]?.key || '';
+  // المفتاح الكامل لا يخرج من القاعدة (تُخزَّن hash) — نعرض النسخة المحلية
+  // للواجهة إن وُجدت، وإلا بصمة القائمة (القيمة الكاملة عند الإنشاء فقط).
+  const quickKey = storedUiKey() || keyData?.keys?.[0]?.key || '';
   const [copied, setCopied] = useState<'url' | 'key' | 'model' | null>(null);
   const doCopy = (what: 'url' | 'key' | 'model', text: string) => {
     navigator.clipboard?.writeText(text).then(() => {
       setCopied(what);
       setTimeout(() => setCopied(null), 1400);
+    }).catch(() => {
+      // صلاحية الحافظة قد تُرفض — لا نُسقط الوعد بلا معالجة (كان unhandled rejection)
     });
   };
   const BASE = (import.meta as any).env?.VITE_GATEWAY_URL || `${window.location.origin}`;
@@ -117,6 +121,7 @@ export function PlaygroundTab() {
           <Cpu className="w-4 h-4 text-ink-muted shrink-0" />
           <select
             className="input flex-1 !py-1.5"
+            aria-label="اختيار النموذج"
             value={model}
             onChange={e => setModel(e.target.value)}
           >
@@ -179,6 +184,7 @@ export function PlaygroundTab() {
             </label>
             <textarea
               className="input font-sans" rows={2}
+              aria-label="رسالة النظام"
               value={system} onChange={e => setSystem(e.target.value)}
             />
           </div>
@@ -188,6 +194,7 @@ export function PlaygroundTab() {
             </label>
             <textarea
               className="input font-sans" rows={6}
+              aria-label="رسالتك"
               value={user} onChange={e => setUser(e.target.value)}
               placeholder="Type your message… (Enter to send, Shift+Enter for newline)"
               onKeyDown={e => {

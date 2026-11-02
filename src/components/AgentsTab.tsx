@@ -147,10 +147,10 @@ export function AgentsTab({ showToast }: { showToast: (m: string, t?: 'info' | '
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button onClick={() => run('sync')} disabled={busy !== null} className="btn btn-ghost btn-size-sm">
+        <button onClick={() => run('sync')} disabled={busy !== null} className="btn btn-ghost btn-sm">
           {busy === 'sync' ? <Spinner size="sm" /> : <RefreshCw className="w-3.5 h-3.5" />} مزامنة الآن
         </button>
-        <button onClick={() => run('rotate')} disabled={busy !== null} className="btn btn-ghost btn-size-sm">
+        <button onClick={() => run('rotate')} disabled={busy !== null} className="btn btn-ghost btn-sm">
           {busy === 'rotate' ? <Spinner size="sm" /> : <ShieldCheck className="w-3.5 h-3.5" />} دورة تدوير
         </button>
         <span className="text-[11px] text-ink-dim">
@@ -232,7 +232,7 @@ export function AgentsTab({ showToast }: { showToast: (m: string, t?: 'info' | '
       <div className="glass rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold">دوائر المفاتيح</h3>
-          <button onClick={() => setShowAllKeys(v => !v)} className="btn btn-ghost btn-size-sm">
+          <button onClick={() => setShowAllKeys(v => !v)} className="btn btn-ghost btn-sm">
             {showAllKeys ? 'إظهار غير السليمة فقط' : `إظهار الكل (${circuits.length})`}
           </button>
         </div>

@@ -97,7 +97,7 @@ export class EnvSecretSource implements KeySource {
 
   configured(): boolean { return true; }
 
-  async fetch(): Promise<{ entries: SecretEntry[]; error?: string }> {
+  async fetch(): Promise<{ entries: SecretEntry[]; error?: string; ignored?: string[] }> {
     const out: SecretEntry[] = [];
     const seen = new Set<string>();
 
@@ -112,18 +112,26 @@ export class EnvSecretSource implements KeySource {
       out.push({ provider: p.id, value: val, label: envName, source: 'env', priority: 50 });
     }
 
-    // 2) أي متغيّر آخر يشبه مفتاح مزود (مزود غير معروف في الكتالوج)
+    // 2) متغيّرات تشبه مفتاح مزود — **لمزوّد معروف فقط** (الكتالوج ∪ providers.yaml).
+    // S8: كان أي `*_API_KEY` في البيئة يُحفظ مفتاحاً لمزود غير موجود (مثل
+    // ATRIA_DAWN_PREVIEW_API_KEY) ⇒ نسخة سرّية إضافية بلا مستهلك، وقد تُظهر المزود
+    // في العدّادات. المعروض فقط يُخزَّن، والباقي يُبلَّغ عنه بلا كتابة.
+    const known = new Set<string>(loadCatalog().providers.map(p => p.id));
+    const ignored: string[] = [];
     for (const [name, raw] of Object.entries(process.env)) {
       if (!/^[A-Z0-9_]+_API_KEYS?$/.test(name)) continue;
       const val = String(raw || '').trim();
       if (!val) continue;
       const pid = providerIdFromEnvName(name);
-      if (!pid) continue;
+      if (!pid || !known.has(pid)) { ignored.push(name); continue; }
       const fp = `${pid}:${val}`;
       if (seen.has(fp)) continue;
       seen.add(fp);
       out.push({ provider: pid, value: val, label: name, source: 'env', priority: 50 });
     }
-    return { entries: out };
+    if (ignored.length) {
+      console.warn(`[env-source] أُهمل ${ignored.length} متغيّر *_API_KEY لمزود غير معروف (لم يُخزَّن): ${ignored.slice(0, 5).join(', ')}`);
+    }
+    return { entries: out, ignored };
   }
 }

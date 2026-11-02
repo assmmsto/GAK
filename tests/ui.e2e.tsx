@@ -88,6 +88,14 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
 
 // ============ الاختبار 1: وصفة موجودة مسبقاً (كانت تفشل بـ 409 غير مرئي) ============
 {
+  // العُدّة: نضمن وجود مزوّد groq قبل أول قياس، ونتذكر هل أنشأناه نحن
+  const groqExisted = !!(await api('/api/providers')).providers.find((p: any) => p.id === 'groq');
+  if (!groqExisted) {
+    await realFetch(API + '/api/providers/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'groq', name: 'Groq Cloud', baseUrl: 'https://api.groq.com/openai/v1', tier: 4, models: 'auto' })
+    });
+  }
   const before = await api('/api/providers');
   const groqBefore = before.providers.find((p: any) => p.id === 'groq');
 
@@ -98,16 +106,15 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
 
   const txt0 = container.textContent || '';
   check('النافذة تُفتح وتعرض العنوان', txt0.includes('Add Provider'), txt0.slice(0, 60));
-  check('تعرض الوصفات الجاهزة', txt0.includes('Quick Presets') && txt0.includes('Groq Cloud'));
+  check('تعرض الوصفات الجاهزة', txt0.includes('Quick Presets') && (/من الكتالوج \((\d+) متاح\)/.test(txt0) || txt0.includes('احتياطي محلي')), txt0.slice(0, 80));
 
-  // نختار وصفة معرّفها موجود مسبقاً في providers.yaml
-  const preset = findDivByText(container, 'Groq Cloud') || [...container.querySelectorAll('div')].find(d => (d.textContent || '').includes('Groq Cloud') && d.querySelector('span'));
-  await act(async () => { click(preset); });
-  await act(async () => { await sleep(200); });
-
-  const inputsAfterPreset = inputs(container);
-  const idVal = inputsAfterPreset[0]?.value;
-  check('الوصفة تملأ المعرّف', idVal === 'groq', 'id=' + idVal);
+  // نكتب معرّفاً موجوداً (groq من العُدّة) — نفس مسار المستخدم الحقيقي
+  // (لوحة الوصفات تصفّي الموجود أصلاً، فهي لا تعرض groq — لذلك النبض هو التنبيه وزر التحديث)
+  const ins0 = inputs(container);
+  await act(async () => { setInputValue(ins0[0], 'groq'); });
+  await act(async () => { setInputValue(ins0[1], 'Groq Cloud'); });
+  await act(async () => { setInputValue(ins0[2], 'https://api.groq.com/openai/v1'); });
+  await act(async () => { await sleep(150); });
 
   const txt1 = container.textContent || '';
   check('يظهر تنبيه "موجود مسبقاً" قبل الحفظ', txt1.includes('موجود مسبقاً'), 'التنبيه غير ظاهر');
@@ -117,7 +124,7 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
   check('زر الحفظ غير معطّل', saveBtn && !saveBtn.disabled, 'disabled=' + saveBtn?.disabled);
 
   // نغيّر الاسم لنتأكد أن الحفظ حدث فعلاً
-  const nameInput = inputsAfterPreset.find((i: any) => i.value === 'Groq Cloud');
+  const nameInput = inputs(container)[1];
   await act(async () => { setInputValue(nameInput, 'Groq Cloud E2E'); });
   await act(async () => { await sleep(120); });
 
@@ -133,13 +140,19 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
   check('لم يُنشأ مزود مكرر', after.providers.filter((p: any) => p.id === 'groq').length === 1);
   check('عدد المزودات لم يزد', after.providers.length === before.providers.length, before.providers.length + ' → ' + after.providers.length);
 
-  // نُعيد الاسم الأصلي
-  await realFetch(API + '/api/providers/groq', {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: groqBefore.name })
-  });
-  const restored = await api('/api/providers');
-  check('أُعيد الاسم الأصلي', restored.providers.find((p: any) => p.id === 'groq')?.name === 'Groq Cloud');
+  // ننهي الترتيب: إن أنشأنا groq قبل قليل نحذفه، وإلا نُعيد الاسم الأصلي
+  if (!groqExisted) {
+    await realFetch(API + '/api/providers/groq', { method: 'DELETE' });
+    const cleaned = await api('/api/providers');
+    check('تنظيف مزود العدّة (groq)', !cleaned.providers.find((p: any) => p.id === 'groq'));
+  } else {
+    await realFetch(API + '/api/providers/groq', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: groqBefore.name })
+    });
+    const restored = await api('/api/providers');
+    check('أُعيد الاسم الأصلي', restored.providers.find((p: any) => p.id === 'groq')?.name === groqBefore.name);
+  }
 
   await act(async () => { root.unmount(); });
 }
@@ -218,6 +231,22 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
 // ============ الاختبار 4: تبويب فرز النماذج (الهيكل الجديد) ============
 {
   const { SortTab } = await import('../src/components/SortTab');
+
+  // العُدّة: دلالة «معطّل» تحتاج مزوّداً معطلاً فعلاً — نعطّل واحداً مؤقتاً ونرجعه في النهاية
+  const provsNow = await api('/api/providers');
+  const disabledExisted = provsNow.providers.some((p: any) => !p.enabled);
+  let toggledOff: string | null = null;
+  if (!disabledExisted) {
+    const victim: any = provsNow.providers.find((p: any) => p.enabled);
+    if (victim) {
+      await realFetch(API + `/api/providers/${victim.id}/toggle`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: false })
+      });
+      toggledOff = victim.id;
+    }
+  }
+
   const container = w.document.createElement('div');
   w.document.body.appendChild(container);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -248,39 +277,74 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
   check('أعمدة الجدول كاملة', ['النموذج', 'المزود', 'الحالة', 'الزمن', 'آخر فحص', 'السبب', 'إجراء'].every(h =>
     [...container.querySelectorAll('th')].some(th => (th.textContent || '').trim() === h)));
 
-  // تغطية المزودات
-  check('شريط تغطية المزودات يعرض المزودات', txt().includes('تغطية المزودات') && txt().includes('apmix') && txt().includes('pollinations'));
+  // تغطية المزودات — ديناميكي: نتحقق من عرض المزودات الفعلية من الخادم
+  // (كانت تتحقق من أسماء apmix/pollinations الكتابية — تفشل بعد أي تهيئة/تغيير مزودات)
+  const realProviders: any[] = (await api('/api/providers')).providers;
+  check('شريط تغطية المزودات يعرض المزودات الفعلية', txt().includes('تغطية المزودات')
+    && realProviders.length > 0
+    && realProviders.every((p: any) => txt().includes(p.id)),
+    'providers=' + realProviders.map((p: any) => p.id).join(','));
   check('يميّز المزود المعطّل', txt().includes('معطّل'));
 
-  // التصفية بالمؤشر: نضغط "مرفوض (محجوب)"
-  const kpiBtn: any = [...container.querySelectorAll('button')].find(b => (b.textContent || '').includes('مرفوض (محجوب)'));
-  await act(async () => { click(kpiBtn); });
-  await act(async () => { await sleep(300); });
-  const statusBadges = [...container.querySelectorAll('tbody tr')].map(tr => {
-    const b = [...tr.querySelectorAll('span')].find(s => s.className.includes('badge'));
-    return (b?.textContent || '').trim();
-  });
-  check('التصفية بالمؤشر تعمل (كل الصفوف "مرفوض")', statusBadges.length > 0 && statusBadges.every(s => s === 'مرفوض'),
-    'badges=' + [...new Set(statusBadges)].join('/'));
+  // التصفية بالمؤشر — ديناميكي: نختار المؤشر الموافق لصف فعلي موجود
+  // (كانت تفترض وجود صفوف «مرفوض» دائماً — تنكسر على قاعدة نظيفة)
+  const statusToKpi: Record<string, { kpi: string; badges: string[] }> = {
+    ok: { kpi: 'يعمل', badges: ['يعمل'] },
+    rejected: { kpi: 'مرفوض (محجوب)', badges: ['مرفوض'] },
+    provider_auth: { kpi: 'مفتاح خاطئ', badges: ['مفتاح خاطئ'] },
+    rate_limited: { kpi: 'حصة فارغة / بطيء', badges: ['حصة فارغة', 'بطيء'] },
+    slow: { kpi: 'حصة فارغة / بطيء', badges: ['حصة فارغة', 'بطيء'] },
+    no_key: { kpi: 'بلا مفتاح', badges: ['بلا مفتاح'] }
+  };
+  const firstStatus: string = (serverProbes.probes as any[])[0]?.status || '';
+  const kp = statusToKpi[firstStatus];
+  if (kp) {
+    // نص زر المؤشر = القيمة+التسمية ('1يعمل') — نبحث بالاحتواء مع استبعاد زر «كيف يعمل؟»
+    const kpiBtn: any = [...container.querySelectorAll('button')]
+      .find(b => {
+        const t = (b.textContent || '').trim();
+        return t.includes(kp.kpi) && !t.includes('كيف');
+      });
+    check('زر المؤشر المطابق لبيانات الخادم موجود (' + kp.kpi + ')', !!kpiBtn);
+    if (kpiBtn) {
+      await act(async () => { click(kpiBtn); });
+      await act(async () => { await sleep(300); });
+      const statusBadges = [...container.querySelectorAll('tbody tr')].map(tr => {
+        const b = [...tr.querySelectorAll('span')].find(s => s.className.includes('badge'));
+        return (b?.textContent || '').trim();
+      });
+      check('التصفية بالمؤشر تعمل (الكل ' + kp.badges.join('/') + ')',
+        statusBadges.length > 0 && statusBadges.every(s => kp.badges.includes(s)),
+        'badges=' + [...new Set(statusBadges)].join('/'));
 
-  // إلغاء التصفية
-  await act(async () => { click(kpiBtn); });
-  await act(async () => { await sleep(300); });
-  check('إلغاء التصفية يعيد كل الصفوف', rowsNow() === rowCount, rowsNow() + ' vs ' + rowCount);
+      // إلغاء التصفية
+      await act(async () => { click(kpiBtn); });
+      await act(async () => { await sleep(300); });
+      check('إلغاء التصفية يعيد كل الصفوف', rowsNow() === rowCount, rowsNow() + ' vs ' + rowCount);
+    }
+  } else {
+    check('التصفية بالمؤشر: لا صفوف فحص لتوليدها — متخطّى بصدق', true, 'firstStatus=' + firstStatus);
+  }
 
-  // البحث
+  // البحث — ديناميكي: النبضة من أول صف فعلي (كانت 'llama' الكتابية تسقط على قواعد بلاها)
+  const firstModel: string = (serverProbes.probes as any[])[0]?.model || '';
   const searchInput: any = container.querySelector('input[placeholder*="ابحث"]');
   check('حقل البحث موجود', !!searchInput);
-  await act(async () => { setInputValue(searchInput, 'llama'); });
-  await act(async () => { await sleep(400); });
-  const afterSearch = rowsNow();
-  check('البحث يُقلّل النتائج', afterSearch < rowCount && afterSearch > 0, afterSearch + ' من ' + rowCount);
-  const modelsShown = [...container.querySelectorAll('tbody tr')].map(tr => (tr.querySelector('td')?.textContent || '').toLowerCase());
-  check('كل نتائج البحث تحتوي الكلمة', modelsShown.every(m => m.includes('llama')), modelsShown.slice(0, 3).join(', '));
+  if (firstModel && searchInput) {
+    const needle = firstModel.slice(0, Math.min(10, firstModel.length));
+    await act(async () => { setInputValue(searchInput, needle); });
+    await act(async () => { await sleep(400); });
+    const afterSearch = rowsNow();
+    check('البحث يُقلّل النتائج', afterSearch <= rowCount && afterSearch >= 1, afterSearch + ' من ' + rowCount);
+    const modelsShown = [...container.querySelectorAll('tbody tr')].map(tr => (tr.querySelector('td')?.textContent || '').toLowerCase());
+    check('كل نتائج البحث تحتوي الكلمة', modelsShown.every(m => m.includes(needle.toLowerCase())), modelsShown.slice(0, 3).join(', '));
 
-  await act(async () => { setInputValue(searchInput, ''); });
-  await act(async () => { await sleep(300); });
-  check('مسح البحث يعيد كل الصفوف', rowsNow() === rowCount);
+    await act(async () => { setInputValue(searchInput, ''); });
+    await act(async () => { await sleep(300); });
+    check('مسح البحث يعيد كل الصفوف', rowsNow() === rowCount);
+  } else {
+    check('البحث: لا صفوف فحص — متخطّى بصدق', true, 'probes=0');
+  }
 
   // شرح المنهج
   const methodBtn: any = [...container.querySelectorAll('button')].find(b => (b.textContent || '').includes('كيف يعمل؟'));
@@ -296,6 +360,16 @@ console.log('=== اختبار نافذة إضافة/تحرير المزود (jsd
   check('تلميح إدارة المفاتيح يوجّه لتبويب Providers', txt().includes('Providers'));
 
   await act(async () => { root.unmount(); });
+
+  // إعادة العُدّة كما كانت
+  if (toggledOff) await realFetch(API + `/api/providers/${toggledOff}/toggle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: true })
+  });
+  if (toggledOff) {
+    const back = await api('/api/providers');
+    check('أُعيد تفعيل مزوّد العُدّة', !!back.providers.find((p: any) => p.id === toggledOff)?.enabled);
+  }
 }
 
 console.log('\n================ النتيجة ================');

@@ -78,27 +78,26 @@ export interface Model {
   _upstream_id: string;
 }
 
-// ===== توكن الإدارة الاختياري =====
-// إن كان الخادم يعمل بـ ADMIN_TOKEN، افتح اللوحة مرة بـ ?token=XXX ليُحفظ محلياً
+// ===== توكن الإدارة =====
+// لا تُخزَّن قيمة سرية في JS إطلاقاً: التوكن يُستبدل بكوكي HttpOnly عبر
+// POST /api/auth — غير مقروء من سكربتات الصفحة (تحصين ضد سرقته عبر XSS).
 function initAdminToken() {
   try {
     const url = new URL(window.location.href);
     const t = url.searchParams.get('token');
-    if (t) {
-      localStorage.setItem('gw_admin_token', t);
-      url.searchParams.delete('token');
-      window.history.replaceState({}, '', url.toString());
-    }
+    if (!t) return;
+    url.searchParams.delete('token');
+    window.history.replaceState({}, '', url.toString());
+    fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: t })
+    }).catch(() => {});
+    // نظّف ما كان يُخزَّن في النسخ القديمة (توكن في localStorage كان قابلاً للسرقة)
+    localStorage.removeItem('gw_admin_token');
   } catch { /* بيئة بلا window */ }
 }
 initAdminToken();
-
-function adminHeaders(): Record<string, string> {
-  try {
-    const t = localStorage.getItem('gw_admin_token');
-    return t ? { 'X-Admin-Token': t } : {};
-  } catch { return {}; }
-}
 
 // رسالة الخطأ قد تصل كنص ({error: "..."}) أو ككائن ({error: {message}})
 // بدون هذا تُستبدل كل رسائل الخادم بنص الحالة العام مثل "Conflict"
@@ -109,10 +108,11 @@ function errorMessage(err: any, fallback: string): string {
   return err.error?.message || err.message || fallback;
 }
 
+// الكوكي HttpOnly يُرسَل تلقائياً مع كل طلب نفس الأصل — لا ترويسة يدوية
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...adminHeaders(), ...(init?.headers as any) }
+    headers: { 'Content-Type': 'application/json', ...(init?.headers as any) }
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -122,23 +122,38 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 // مفتاح تلقائي للواجهة نفسها (الـ dashboard يستخدم /v1 بدون ما المستخدم يكتب مفتاح)
+// المفتاح الكامل لا يخرج من القاعدة بعد إنشائه (تُخزَّن hash) — لذا تحفظه الواجهة
+// محلياً عند أول إنشاء، وينشئ واحداً تلقائياً باسم playground إن لم يوجد.
+const UI_KEY_STORAGE = 'gw_ui_key';
 let _uiKey = '';
 export async function getUiKey(): Promise<string> {
   if (_uiKey) return _uiKey;
   try {
-    const r = await fetch('/api/keys');
-    if (r.ok) {
-      const j = await r.json();
-      if (j.keys?.length) { _uiKey = j.keys[0].key; return _uiKey; }
+    _uiKey = localStorage.getItem(UI_KEY_STORAGE) || '';
+  } catch { /* بيئة بلا localStorage */ }
+  if (_uiKey) return _uiKey;
+  try {
+    // اسم بوقت الإنشاء: كل متصفح بلا تخزين محلي ينشئ مفتاحاً جديداً (لا يمكن
+    // إعادة استخدام القديم — القاعدة تحفظ البصمة فقط)، فالطابع الزمني يميّزها
+    // في القائمة عن بعضها بدل أربعة مفاتيح بنفس الاسم.
+    const created = await api.createKey('playground ' + new Date().toLocaleTimeString('en-GB', { hour12: false }));
+    _uiKey = created.key || '';
+    if (_uiKey) {
+      try { localStorage.setItem(UI_KEY_STORAGE, _uiKey); } catch { /* لا تخزين — يعاد الإنشاء لاحقاً */ }
     }
-  } catch {}
-  return '';
+  } catch { /* الخادم قد يمنع الإنشاء (توكن admin) — تُستخدم الأداة بمفتاح يدوي */ }
+  return _uiKey;
+}
+
+/** المفتاح المخزَّن للواجهة (إن وُجد) — لعرضه في تفاصيل الاتصال السريع. */
+export function storedUiKey(): string {
+  try { return localStorage.getItem(UI_KEY_STORAGE) || ''; } catch { return ''; }
 }
 
 // نسخة من req بس تضيف المفتاح على طلبات /v1
 async function reqAuth<T>(path: string, init?: RequestInit): Promise<T> {
   const key = await getUiKey();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...adminHeaders() };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (key) headers['Authorization'] = `Bearer ${key}`;
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {

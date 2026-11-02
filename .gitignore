@@ -41,4 +41,7 @@ node_modules/
 # حالة أدوات التطوير (ليست من المشروع)
 .mimosa/
 .workbuddy-ai/
+.freebuff/
 staged.txt
+tests/_shots/
+data/.testkeys.json

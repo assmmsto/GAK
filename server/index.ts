@@ -5,14 +5,16 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
 import { loadConfig, maskKey } from './config.js';
 import { EventDB } from './db.js';
+import { noteStoreWriteFailure } from './db.js';
 import { Router } from './router.js';
 import { readProvidersYaml, writeProvidersYaml, testConnection, fetchModels, validateId } from './provider-manager.js';
-import { probeModel } from './probe.js';
+import { probeModel, MAX_MODEL_NAME_LEN, resolveProbeVerdict, isKeyLayerAttempt, shouldTryNextKey, selectStaleProbeCandidates } from './probe.js';
 import type { ProbeResult } from './probe.js';
-import { securityHeaders, rateLimit, sanitizeErrorMessage } from './security.js';
+import { securityHeaders, rateLimit, sanitizeErrorMessage, timingSafeEqualStrings, isProxiedRequest } from './security.js';
 import { loadCatalog, catalogEntry, deriveEnvName, maskImportLine, parseImportText } from './services/catalog.js';
 import { upsertEnvVar } from './services/env-store.js';
 import { guardBaseUrl } from './services/url-guard.js';
+import { SwrCache } from './services/models-cache.js';
 import { AgentScheduler } from './agents/scheduler.js';
 import { KeySyncEngine } from './agents/key-sync.js';
 import { RotationAgent } from './agents/rotation.js';
@@ -23,6 +25,7 @@ import {
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { request } from 'undici';
+import { clientKeyHash } from './db.js';
 
 const config = loadConfig();
 const db = new EventDB();
@@ -62,6 +65,13 @@ if (IS_NETWORK_EXPOSED && !ADMIN_TOKEN) {
   console.error('');
   process.exit(1);
 }
+// نشر خلف بروكسي على 127.0.0.1 لا يُكشف بفحص HOST — تحذير إقلاع صريح
+// حتى لا يكون الافتراض الافتراضي الوحيد صمتاً. المسار يُغلق فعلياً عند أول طلب.
+if (!ADMIN_TOKEN && !IS_NETWORK_EXPOSED) {
+  console.warn('⚠ ADMIN_TOKEN غير مضبوط. التشغيل المحلي المباشر آمن، لكن إن كنت');
+  console.warn('  تنشر الخادم خلف بروكسي (nginx/caddy) فستُغلق /api تلقائياً عند أول طلب عبره.');
+  console.warn('  للنشر العام: ADMIN_TOKEN=… ثم افتح اللوحة مرة بـ ?token=…');
+}
 // أصول CORS المسموحة (مفصولة بفواصل) — الافتراضي: تطوير محلي فقط
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3001,http://127.0.0.1:3001')
   .split(',').map(s => s.trim()).filter(Boolean);
@@ -72,6 +82,14 @@ const RATE_PROBE_PER_MIN = Number(process.env.RATE_LIMIT_PROBE_PER_MIN) > 0 ? Nu
 
 
 const app = express();
+// الوثوق بوكسي واحد أمام الخادم (nginx/caddy) — بدونه يكون req.ip هو عنوان
+// البروكسي لكل العملاء فيتشاركون دلوّ حدّ المعدل الواحد: مهاجم واحد يُغرق
+// الجميع بـ429. مضبوط بTRUST_PROXY صراحةً حتى لا يكون افتراضاً صامتاً.
+const TRUST_PROXY = process.env.TRUST_PROXY;
+if (TRUST_PROXY && TRUST_PROXY !== '0') {
+  // "1" = وثوق بقفزة واحدة؛ أو قائمة قفزات/عناوين بصيغة express
+  app.set('trust proxy', TRUST_PROXY === '1' ? 1 : TRUST_PROXY);
+}
 app.use(cors({
   origin(origin, cb) {
     // بلا origin = نفس الأصل أو أداة سطر أوامر → نسمح
@@ -93,13 +111,73 @@ app.use(securityHeaders);
 app.use('/v1', rateLimit({ windowMs: 60_000, max: RATE_V1_PER_MIN, message: 'تجاوزت حد الطلبات على /v1 — أعد المحاولة بعد قليل.' }));
 app.use('/api/probe', rateLimit({ windowMs: 60_000, max: RATE_PROBE_PER_MIN, message: 'تجاوزت حد طلبات الفحص — انتظر دقيقة قبل فحص آخر.' }));
 
-// ===== حماية مسارات الإدارة (اختيارية) =====
+// ===== حماية مسارات الإدارة =====
+// التوكن يُحفظ لدى المتصفح **HttpOnly cookie** (غير مقروء من JS — تحصين ضد
+// سرقة التوكن عبر XSS)، ويُضبط بمرة واحدة عبر POST /api/auth. الترويسة
+// X-Admin-Token تبقى مقبولة للأدوات وسطر الأوامر.
+const ADMIN_COOKIE = 'gw_admin';
+
+/** أصغر قارئ كوكيز — بلا اعتماد جديد لشيء يُقرأ بسطرين. */
+function cookieValue(req: any, name: string): string {
+  const raw = req.headers?.cookie;
+  if (typeof raw !== 'string') return '';
+  for (const part of raw.split(';')) {
+    const i = part.indexOf('=');
+    if (i === -1) continue;
+    if (part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return '';
+}
+
+/** يضبط/يحذف كوكي الإدارة بأعلام آمنة (secure تلقائياً خلف https). */
+function setAdminCookie(req: any, res: any, token: string | null) {
+  const proto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+  const flags = [
+    `${ADMIN_COOKIE}=${token ? encodeURIComponent(token) : ''}`,
+    'Path=/', 'HttpOnly', 'SameSite=Strict', 'Max-Age=' + (token ? 60 * 60 * 24 * 30 : 0)
+  ];
+  if (proto === 'https') flags.push('Secure');
+  res.setHeader('Set-Cookie', flags.join('; '));
+}
+
+/** فشل-مغلق خلف بروكسي: الربط على 127.0.0.1 خلف nginx/caddy يجعل فحص HOST
+ *  أعلاه يمرّ بلا إنذار بينما /api مكشوفة على الإنترنت — وتحديداً GET /api/keys
+ *  كان يعيد مفاتيح البوابة كاملة. ترويسات البروكسي في الطلب هي الدليل؛ إن ظهرت
+ *  وADMIN_TOKEN فارغ أُغلق /api (503) ما لم يصرّح المُشغِّل بخلافه صراحةً
+ *  (ALLOW_UNAUTHENTICATED_API=1 لنشرٍ يحميه بروكسي بطبقة مصادقة خاصة به). */
+const ALLOW_OPEN_API = process.env.ALLOW_UNAUTHENTICATED_API === '1';
+app.use('/api', (req, res, next) => {
+  if (ADMIN_TOKEN || ALLOW_OPEN_API) return next();
+  if (!isProxiedRequest(req)) return next(); // تطوير محلي مباشر — الوضع القديم
+  res.status(503).json({
+    error: 'admin token required in production',
+    hint: 'أنت تصل الخادم عبر بروكسي. اضبط ADMIN_TOKEN وافتح اللوحة بـ ?token=… أو اسمح صراحةً بـ ALLOW_UNAUTHENTICATED_API=1'
+  });
+});
+
+// تبادل التوكن بكوكي HttpOnly — لا تُخزَّن قيمة سرية في JS إطلاقاً
+app.post('/api/auth', (req, res) => {
+  const token = (req.body?.token ?? req.headers['x-admin-token'] ?? '') as string;
+  if (!ADMIN_TOKEN) return res.json({ ok: true, mode: 'no-token-required' });
+  if (!token || !timingSafeEqualStrings(String(token), ADMIN_TOKEN)) {
+    return res.status(401).json({ error: 'invalid admin token' });
+  }
+  setAdminCookie(req, res, String(token));
+  res.json({ ok: true });
+});
+app.post('/api/auth/logout', (req, res) => {
+  setAdminCookie(req, res, null);
+  res.json({ ok: true });
+});
+
 if (ADMIN_TOKEN) {
   app.use('/api', (req, res, next) => {
-    const token = (req.headers['x-admin-token'] as string)
+    const token = cookieValue(req, ADMIN_COOKIE)
+      || (req.headers['x-admin-token'] as string)
       || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    if (token && token === ADMIN_TOKEN) return next();
-    res.status(401).json({ error: 'admin token required', hint: 'send X-Admin-Token header' });
+    // مقارنة ثوابت زمنية — `===` يتوقف عند أول حرف مختلف فيقيس المهاجم البادئة
+    if (token && timingSafeEqualStrings(token, ADMIN_TOKEN)) return next();
+    res.status(401).json({ error: 'admin token required', hint: 'open the dashboard once with ?token=…' });
   });
 }
 
@@ -112,12 +190,40 @@ function reloadProvider(entry: any) {
 }
 
 // WebSocket for real-time updates
+// /ws يبثّ حالة النظام (صحة، مزودات، فحوص) — بلا مصادقة كان أي زائر نشرٍ عام
+// يربط ويقرأ البث بلا سقف على عدد الاتصالات (DoS رخيص). الآن: سقف عملاء،
+// وإن ضُبط ADMIN_TOKEN فالترقية تتطلب التوكن (?token= أو ترويسة).
+const WS_MAX_CLIENTS = Math.max(1, Number(process.env.WS_MAX_CLIENTS) || 50);
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 const clients = new Set<any>();
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // فحص Origin: WebSocket لا يخضع لـCORS، فأي صفحة يزورها المستخدم كانت
+  // تستطيع الاتصال وقراءة بثّ الحالة (أسماء مزودات/نماذج/أخطاء — لا مفاتيح).
+  // نقبل: بلا Origin (أدوات سطر أوامر) أو أصل مسموح في CORS_ORIGINS.
+  const origin = req.headers.origin as string | undefined;
+  if (origin && !CORS_ORIGINS.includes(origin)) {
+    ws.close(4403, 'origin not allowed');
+    return;
+  }
+  if (ADMIN_TOKEN) {
+    const url = new URL(req.url || '/', 'http://localhost');
+    const token = url.searchParams.get('token')
+      || cookieValue(req, ADMIN_COOKIE)
+      || (req.headers['x-admin-token'] as string || '')
+      || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!token || !timingSafeEqualStrings(token, ADMIN_TOKEN)) {
+      ws.close(4401, 'admin token required');
+      return;
+    }
+  }
+  if (clients.size >= WS_MAX_CLIENTS) {
+    ws.close(1013, 'too many dashboard connections');
+    return;
+  }
   clients.add(ws);
   ws.on('close', () => clients.delete(ws));
+  ws.on('error', () => clients.delete(ws));
 });
 function broadcast(event: any) {
   const msg = JSON.stringify(event);
@@ -172,9 +278,23 @@ app.post('/v1/chat/completions', async (req, res) => {
   if (!body.messages || !Array.isArray(body.messages)) {
     return res.status(400).json({ error: { message: 'messages required' } });
   }
-  // نسجل مفتاح المستخدم الجامع على الطلب ليظهر بالإحصائيات
+  // تحقق مبكر من صحة المدخلات: بلا هذا كان خطأ **عميل** (رسائل فارغة أو
+  // max_tokens نصي) يُرسل للمزوّد ويعود 504 «All providers failed» المضللة —
+  // فيعيد الوكيل البرمجي المحاولة على طلب لن ينجح أصلاً.
+  if (body.messages.length === 0) {
+    return res.status(400).json({ error: { message: 'messages must not be empty', type: 'invalid_request_error' } });
+  }
+  if (body.max_tokens !== undefined && (!Number.isInteger(body.max_tokens) || body.max_tokens < 0)) {
+    return res.status(400).json({ error: { message: 'max_tokens must be a non-negative integer', type: 'invalid_request_error' } });
+  }
+  if (body.temperature !== undefined && (typeof body.temperature !== 'number' || !Number.isFinite(body.temperature))) {
+    return res.status(400).json({ error: { message: 'temperature must be a number', type: 'invalid_request_error' } });
+  }
+  // نسجل مفتاح المستخدم الجامع على الطلب ليظهر بالإحصائيات — بصمته لا نصه
+  // (السجلات لا تحتفظ بمفتاح عميل خام إطلاقاً).
   const authHdr = (req.headers.authorization || '') as string;
-  const callerKey = authHdr.startsWith('Bearer ') ? authHdr.slice(7).trim() : null;
+  const rawCaller = authHdr.startsWith('Bearer ') ? authHdr.slice(7).trim() : null;
+  const callerKey = rawCaller ? clientKeyHash(rawCaller) : null;
   const result = await router.chat(body, callerKey);
   if (!result.ok) {
     return res.status(result.status).json({ error: { message: result.error, attempts: result.attempts } });
@@ -224,7 +344,8 @@ app.post('/v1/messages', async (req, res) => {
   const messages = anthropicToOpenAIMessages(body);
   const model = !body.model || body.model === 'auto' ? 'auto' : body.model;
   const wantStream = !!body.stream;
-  const callerKey = callerKeyOf(req);
+  const rawCallerKey = callerKeyOf(req);
+  const callerKey = rawCallerKey ? clientKeyHash(rawCallerKey) : null;
 
   const result = await router.chat({
     model, messages, stream: wantStream,
@@ -235,7 +356,10 @@ app.post('/v1/messages', async (req, res) => {
   }, callerKey);
 
   if (!result.ok) {
-    return res.status(502).json({ type: 'error', error: { type: 'api_error', message: result.error, attempts: result.attempts } });
+    // رمز صادق: نموذج غير موجود = 404 دائم (كما OpenAI/Anthropic) لا 502 —
+    // عميل يعتمد على 404 لبديله كان لا يراه أبداً (خلل مثبت باختبار حي).
+    const st = result.status === 404 ? 404 : 502;
+    return res.status(st).json({ type: 'error', error: { type: 'api_error', message: result.error, attempts: result.attempts } });
   }
 
   const msgId = 'msg_' + Math.random().toString(36).slice(2, 14);
@@ -244,6 +368,10 @@ app.post('/v1/messages', async (req, res) => {
   if (!wantStream || !result.stream) {
     const msg = result.data?.choices?.[0]?.message || {};
     const { blocks, stopReason } = openAIMessageToAnthropicBlocks(msg);
+    // ترويسات التوجيه نفسها التي يضبطها فرع البث — كانت غائبة هنا فيختفي
+    // مصدر الردّ عن المشغّلين (خلل اتساق مثبت).
+    if (result.providerId) res.setHeader('X-Provider', result.providerId);
+    if (result.keyId) res.setHeader('X-Key-Id', result.keyId);
     return res.json({
       id: msgId, type: 'message', role: 'assistant', model: result.model || model,
       content: blocks,
@@ -273,6 +401,7 @@ app.post('/v1/messages', async (req, res) => {
   send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
 
   let outTokens = 0;
+  let inTokens = 0;
   let buf = '';
   let stopReason = 'end_turn';
   // نُجمّع استدعاءات الأدوات ونُرسلها ككتل tool_use عند نهاية البث
@@ -304,6 +433,9 @@ app.post('/v1/messages', async (req, res) => {
             }
           }
           if (j.usage?.completion_tokens) outTokens = j.usage.completion_tokens;
+          // كانت input_tokens تبقى 0 دائماً في البث — والمعلومة موجودة في حزمة
+          // usage النهائية؛ Claude Code يقرؤها للمحاسبة (خلل مثبت باختبار حي).
+          if (j.usage?.prompt_tokens) inTokens = j.usage.prompt_tokens;
           if (j.choices?.[0]?.finish_reason === 'length') stopReason = 'max_tokens';
         } catch { /* سطر غير مكتمل */ }
       }
@@ -334,7 +466,7 @@ app.post('/v1/messages', async (req, res) => {
   send('message_delta', {
     type: 'message_delta',
     delta: { stop_reason: toolKeys.length ? 'tool_use' : stopReason, stop_sequence: null },
-    usage: { output_tokens: outTokens }
+    usage: { input_tokens: inTokens, output_tokens: outTokens }
   });
   send('message_stop', { type: 'message_stop' });
   res.end();
@@ -346,7 +478,8 @@ app.post('/v1/embeddings', async (req, res) => {
   if (!body.model || body.input === undefined) {
     return res.status(400).json({ error: { message: 'model and input required' } });
   }
-  const callerKey = callerKeyOf(req) || 'k1';
+  const rawEmbKey = callerKeyOf(req) || 'k1';
+  const callerKey = rawEmbKey === 'k1' ? 'k1' : clientKeyHash(rawEmbKey);
   const errors: any[] = [];
   for (const pid of router.reachableProviderIds()) {
     const entry = router.getProvider(pid);
@@ -363,12 +496,12 @@ app.post('/v1/embeddings', async (req, res) => {
       if (out.status === 429) {
         slot.status = 'quota_exhausted';
         slot.blockedUntil = Date.now() + 300_000;
-        if (slot.id) db.updateProviderKey(slot.id, { status: 'quota_exhausted', blockMs: 300_000 }).catch(() => {});
+        if (slot.id) db.updateProviderKey(slot.id, { status: 'quota_exhausted', blockMs: 300_000 }).catch((e) => noteStoreWriteFailure('updateProviderKey:embeddings-429', e));
         continue; // جرّب مفتاحاً آخر لنفس المزود
       }
       if (out.status === 401 || out.status === 403) {
         slot.status = 'auth_error';
-        if (slot.id) db.updateProviderKey(slot.id, { status: 'auth_error' }).catch(() => {});
+        if (slot.id) db.updateProviderKey(slot.id, { status: 'auth_error' }).catch((e) => noteStoreWriteFailure('updateProviderKey:embeddings-401', e));
         continue; // مفتاح خاطئ → جرّب مفتاحاً آخر
       }
       break; // خطأ على مستوى المزود → انتقل للتالي
@@ -393,26 +526,24 @@ async function collectModels() {
   }));
 }
 
-// ===== ذاكرة مؤقتة لقوائم النماذج (S3) =====
-// القياس قبل الإصلاح: `/v1/models` = 3037ms و`/api/drift` = 2006ms لأن كل طلب
-// كان يضرب 15 مزوّداً على /models. ومهمة drift تضربهم **كل 60 ثانية**.
-// السبب: لا نريد أن يكون قياس السطح حياً على استعلام قراءة متكرّر.
+// ===== ذاكرة stale-while-revalidate لقوائم النماذج (S3+SWR) =====
+// المشكلة المقاسة: `/v1/models` = 3037ms و`/api/drift` = 2006ms لأن كل طلب
+// كان يضرب 15 مزوّداً على /models — وأول طلب بعد كل TTL كان ينتظر ~3 ثوانٍ.
+// الحل: SWR — بعد انتهاء TTL نُعيد النسخة القديمة **فوراً** ونُحدّث في
+// الخلفية برحلة واحدة مهما تعدّد الطالبون. الفشل الخلفي لا يكسر الطلب.
+// (تُبنى الذاكرة هنا حصراً: `collectModels` دالة معلنة أعلاه — أي بناء قبلها
+//  كان يستخدمها قبل تعريفها، فتُبنى خاملة وتُضرب الشبكة في كل طلب.)
 const MODELS_CACHE_TTL_MS = Number(process.env.MODELS_CACHE_TTL_MS) > 0
   ? Number(process.env.MODELS_CACHE_TTL_MS)
   : 60_000;
-let modelsCache: { at: number; data: Awaited<ReturnType<typeof collectModels>> } | null = null;
+const modelsCache = new SwrCache(collectModels, MODELS_CACHE_TTL_MS);
 
 /** يُبطل الذاكرة عند أي تغيير في المزوّدات أو المفاتيح (مصدر الحقيقة يتغيّر). */
-function invalidateModelsCache(): void { modelsCache = null; }
+function invalidateModelsCache(): void { modelsCache.invalidate(); }
 
-async function collectModelsCached(): Promise<{ data: Awaited<ReturnType<typeof collectModels>>; cached: boolean }> {
-  const now = Date.now();
-  if (modelsCache && now - modelsCache.at < MODELS_CACHE_TTL_MS) {
-    return { data: modelsCache.data, cached: true };
-  }
-  const data = await collectModels();
-  modelsCache = { at: now, data };
-  return { data, cached: false };
+async function collectModelsCached(): Promise<{ data: Awaited<ReturnType<typeof collectModels>>; cached: boolean; stale: boolean }> {
+  const { data, cached, stale } = await modelsCache.get();
+  return { data, cached, stale };
 }
 
 async function countAvailableModels(): Promise<number> {
@@ -432,7 +563,7 @@ app.get('/v1/models', async (_req, res) => {
     owned_by: 'gateway', _provider: 'gateway', _tier: 0, _upstream_id: 'auto',
     _note: 'router picks the best available model'
   });
-  const { data: modelLists, cached } = await collectModelsCached();
+  const { data: modelLists, cached, stale } = await collectModelsCached();
   for (const { id, entry, models } of modelLists) {
     // نطّلع النماذج المرفوضة (من الفحص) عشان ما نعرضها
     const rejected = router.rejectedModels(id);
@@ -452,17 +583,16 @@ app.get('/v1/models', async (_req, res) => {
     object: 'list', data: all,
     _meta: {
       total: all.length, hidden: hidden.length, hiddenList: hidden.slice(0, 50),
-      cache: cached ? 'hit' : 'miss', cacheTtlMs: MODELS_CACHE_TTL_MS
+      cache: cached ? (stale ? 'stale' : 'hit') : 'miss', cacheTtlMs: MODELS_CACHE_TTL_MS
     }
   });
 });
 
 // ----- Unified API key management (CRUD) -----
-// المفتاح الكامل مطلوب لواجهة البوابة (زر الإظهار/النسخ)، لذا لا نُقنّعه هنا.
-// الحماية الفعلية تأتي من طبقة أخرى: /api/* محمي بـADMIN_TOKEN، وهو **إلزامي**
-// عند الفتح على الشبكة (فحص HOST أدناه). أما على localhost فالوصول محلي بطبيعته.
-app.get('/api/keys', async (_req, res) => {
-  res.json({ keys: await db.listApiKeys(), baseUrl: getPublicBaseUrl() });
+// القائمة تعيد بصمة كل مفتاح (key_hint) — النص الكامل لا يخرج من القاعدة
+// (تُخزَّن hash). المفتاح الكامل يُعرض مرة واحدة عند الإنشاء/إعادة التوليد فقط.
+app.get('/api/keys', async (req, res) => {
+  res.json({ keys: await db.listApiKeys(), baseUrl: getPublicBaseUrl(req) });
 });
 
 // إحصائيات مفتاح محدد (الرموز + النماذج + رسم الحياة)
@@ -513,8 +643,12 @@ app.get('/api/keys/:id/stats', async (req, res) => {
 
 app.post('/api/keys', async (req, res) => {
   const { name } = req.body || {};
-  if (!name) return res.status(400).json({ error: 'name required' });
-  const k = await db.createApiKey(name);
+  // تحقق نوعي صارم: اسم كائن/رقم كان يمرّ إلى SQLite فيرمي رفضاً غير ملتقط
+  // وتعلّق الطلب (وقبل شبكة الأمان: يُسقط العملية — نفس صنف عطل /api/logs).
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'name must be a non-empty string' });
+  }
+  const k = await db.createApiKey(name.trim());
   keysExistCache = true; keysCacheTs = Date.now();
   await db.logEvent('key.created', { status: 'success', meta: { name: k.name } });
   res.json(k);
@@ -554,7 +688,9 @@ async function ensureBootstrapKey() {
   const keys = await db.listApiKeys();
   if (keys.length === 0) {
     const k = await db.createApiKey('default');
-    console.log(`🔑 Unified API key generated: ${k.key}`);
+    // مرة واحدة فقط: المفتاح يُخزَّن hash في القاعدة فلا يُعرض لاحقاً — هذه
+    // اللحظة هي الوحيدة لمحارفه الكاملة (نفس سلوك مزودات API الحقيقية).
+    console.log(`🔑 Unified API key generated (احفظه الآن — لن يُعرض مجدداً): ${k.key}`);
   }
   keysExistCache = true;
   keysCacheTs = Date.now();
@@ -599,17 +735,16 @@ keysLoaded.then(() => {
 }).catch((e: any) => console.error('auto-enable failed:', e?.message || e));
 
 // ===== الفحص التلقائي للنماذج التي ممكن تكون عادت =====
-// ثلاث فئات تُعاد دورياً:
+// أربع فئات تُعاد دورياً:
 //   rate_limited / slow → مؤقتة بطبيعتها، قد تتجدد الحصة أو يرجع السيرفر
-//   rejected            → **فقط إن انتهت صلاحيتها** (PROBE_TTL_MS) — قد يكون المزود
-//                          أضاف النموذج أو أصلحه. بلا هذا كان الحجب أبدياً.
+//   rejected / provider_auth → بعد 6 ساعات (PROBE_REJECTED_STALE_MS) — قد يكون
+//                              المزود أضاف النموذج أو أصلح المفتاح
+//   ok → بعد 24 ساعة (OK_STALE_MS) — نجاح قديم ليس ضماناً: نموذج "يعمل" منذ
+//        36 يوماً في القاعدة ردّ "not offered" عند أول محادثة حقيقية. كل حكم
+//        له صلاحية، والجدولة والسقف في selectStaleProbeCandidates (probe.ts).
 // إصلاح لاحق: نستخدم probeWithKeys لا probeModel، فمزود بمفاتيح متعددة
 // كان يُفحص بمفتاحه الأساسي وحده وقد يحكم عليه خطأً.
 const AUTO_PROBE_INTERVAL_MS = 60 * 60 * 1000; // ساعة
-// عتبة إعادة فحص المرفوض. أقصر من PROBE_TTL_MS في الموجّه عن قصد:
-// الموجّه يُطلق الحجب عند TTL (24 ساعة) احتياطاً، وهذه الدورة تُعيد الفحص
-// فعلياً كل 6 ساعات فتكتشف عودة المزود قبل انتهاء الحجب بكثير.
-const PROBE_STALE_MS = 6 * 60 * 60 * 1000; // 6 ساعات
 scheduler.register({
   name: 'auto-probe',
   intervalMs: AUTO_PROBE_INTERVAL_MS,
@@ -617,13 +752,9 @@ scheduler.register({
   try {
     const all = await db.getProbes();
     const now = Date.now();
-    const candidate = all.filter((r: any) => {
-      if (r.status === 'rate_limited' || r.status === 'slow') return true;
-      if (r.status === 'rejected') return (now - Number(r.checked_at || 0)) > PROBE_STALE_MS;
-      return false;
-    });
+    const candidate = selectStaleProbeCandidates(all as any[], now);
     if (!candidate.length) return { ok: true, detail: { candidates: 0 } };
-    console.log(`[auto-probe] يعيد فحص ${candidate.length} نموذج (مؤقتة أو منتهية الصلاحية)`);
+    console.log(`[auto-probe] يعيد فحص ${candidate.length} نموذج (مؤقتة أو منتهية الصلاحية أو ok قديم)`);
     let recovered = 0;
     for (const r of candidate) {
       const entry = router.getProvider(r.provider);
@@ -647,10 +778,20 @@ scheduler.register({
   }
 });
 
-function getPublicBaseUrl(): string {
+// ===== عنوان البوابة العام كما يراه العميل =====
+// كان يُبنى دائماً http://localhost:PORT — خطأ في أي نشر بعيد: اللوحة تعرض
+// للمستخدم رابطاً لا يعمل. نبني من ترويسات الطلب (مع مراعاة البروكسي) بدل
+// تخمين أعمى، ونسقط للافتراضي فقط حين لا تصلنا ترويسات.
+function getPublicBaseUrl(req?: any): string {
   const port = process.env.PORT || 3001;
-  const host = HOST === '127.0.0.1' ? 'localhost' : HOST;
-  return `http://${host}:${port}`;
+  const host = (req?.headers?.['x-forwarded-host'] as string) || (req?.headers?.host as string) || '';
+  if (host) {
+    const proto = (req?.headers?.['x-forwarded-proto'] as string)?.split(',')[0]?.trim()
+      || (req?.secure ? 'https' : (process.env.PUBLIC_PROTO || 'http'));
+    return `${proto}://${host}`;
+  }
+  const h = HOST === '127.0.0.1' ? 'localhost' : HOST;
+  return `http://${h}:${port}`;
 }
 
 // ----- Admin API -----
@@ -747,7 +888,10 @@ app.get('/api/health', async (_req, res) => {
       const blockedUntil = k.blocked_until ?? null;
       const blockedNow = !!blockedUntil && blockedUntil > now;
       const ps = probeStats.get(k.provider);
-      const lastError = (k.last_error || '').slice(0, 200) || null;
+      // خطأ مخزَّن من قاعدة (قد يكون عمره أسابيع) يُعرض معقّماً — نص خام
+      // من مزود قد يحمل HTML كاملاً أو مفتاحاً منعكساً (رأيناه في الصفوف القديمة).
+      // فارغ يبقى فارغاً (null) — لا «Unknown error» مصطنعة على المفتاح السليم.
+      const lastError = k.last_error ? sanitizeErrorMessage(k.last_error, 200) : null;
       let status = k.status || 'unknown';
 
       // استنتاج الحالة من نص الخطأ: انتهاء `blocked_until` يُصفّر `status` إلى
@@ -811,24 +955,39 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+// ===== صدق حالة المزود مقابل قدرته الحقيقية على المحادثة =====
+// ping يطلب GET /models — وهي قائمة لا تستهلك حصة، فتنجح حتى بمفاتيح
+// منتهية الحصة أو محجوبة. وسم مزود كهذا "up" يعني «متصل ثم تفشل محادثته»
+// — وهو جوهر الشكوى. القاعدة: up تعني: يوجد مفتاح واحد على الأقل قابل للاستخدام.
+function truthfulPingStatus(e: any, ping: { ok: boolean; statusCode?: number }): string {
+  const badAuth = ping.statusCode === 401 || ping.statusCode === 403;
+  if (!ping.ok) return badAuth ? 'auth_error' : 'down';
+  if (!router.availableKeySlots(e).length) {
+    // لا مفتاح متاح: إن كان السبب مفاتيح مرفوضة → auth_error، وإلا حصة/عزل
+    const anyAuth = Array.isArray(e.keys) && e.keys.some((k: any) => k.status === 'auth_error');
+    return anyAuth ? 'auth_error' : 'quota_exhausted';
+  }
+  return 'up';
+}
+
 app.post('/api/test', async (req, res) => {
   const { providerId } = req.body || {};
   if (providerId) {
     const e = router.getProvider(providerId);
     if (!e) return res.status(404).json({ error: 'Not found' });
     const ping = await e.provider.ping();
-    const badAuth = ping.statusCode === 401 || ping.statusCode === 403;
-    router.setStatus(providerId, ping.ok ? 'up' : (badAuth ? 'auth_error' : 'down'), ping.error, ping.ok ? undefined : 60_000);
+    const st = truthfulPingStatus(e, ping);
+    router.setStatus(providerId, st, ping.error, ping.ok ? undefined : 60_000);
     await db.logEvent(ping.ok ? 'health.ok' : 'health.fail', { provider: providerId, status: ping.ok ? 'ok' : 'error', latencyMs: ping.latencyMs, error: ping.error });
-    broadcast({ type: 'health', providerId, status: ping.ok ? 'up' : 'down' });
+    broadcast({ type: 'health', providerId, status: st });
     return res.json(ping);
   }
   const results = [];
   for (const id of router.getProviderIds()) {
     const e = router.getProvider(id)!;
     const ping = await e.provider.ping();
-    const badAuth2 = ping.statusCode === 401 || ping.statusCode === 403;
-    router.setStatus(id, ping.ok ? 'up' : (badAuth2 ? 'auth_error' : 'down'), ping.error, ping.ok ? undefined : 60_000);
+    const st = truthfulPingStatus(e, ping);
+    router.setStatus(id, st, ping.error, ping.ok ? undefined : 60_000);
     await db.logEvent(ping.ok ? 'health.ok' : 'health.fail', { provider: id, status: ping.ok ? 'ok' : 'error', latencyMs: ping.latencyMs, error: ping.error });
     results.push({ providerId: id, ...ping });
   }
@@ -837,7 +996,10 @@ app.post('/api/test', async (req, res) => {
 });
 
 app.get('/api/logs', async (req, res) => {
-  const limit = Math.min(parseInt((req.query.limit as string) || '100'), 500);
+  // `?limit=abc` كان يمرّر NaN إلى LIMIT فيرمي @libsql RangeError غير ملتقطاً
+  // **يُسقط العملية كاملة** (P0 — أُعيد إنتاجه مرتين). التحقق هنا إلزامي.
+  const raw = Number.parseInt(String(req.query.limit ?? '100'), 10);
+  const limit = Number.isFinite(raw) ? Math.min(Math.max(1, raw), 500) : 100;
   res.json({ events: await db.getRecentEvents(limit) });
 });
 
@@ -860,12 +1022,8 @@ app.get('/api/usage', async (_req, res) => {
 // لمزود واحد بسبب مفتاح واحد. الآن `probeModel` ترجع 'provider_auth' منفصلة،
 // و'provider_auth' **لا تُكتب كنموذج مرفوض** ولا تُحجب من التوجيه إطلاقاً.
 //
-// لم نعد نقارن الرسائل نصياً (كان هشاً: أي اختلاف في صياغة الرد يقلب الحكم)،
-// بل نعتمد على رمز الحالة وحده — حكم حاسم لا يعتمد على شكل النص.
-function looksKeyRelated(out: ProbeResult): boolean {
-  if (out.reason === 'auth') return true;
-  return /api key|unauthor|forbidden|invalid key|authentication|permission|not allowed/i.test(out.error || '');
-}
+// حكم الطبقة (مفتاح ↔ نموذج) انتقل إلى probe.ts: وحدة نقية تُختبر بلا إقلاع الخادم.
+// كان معرَّفاً هنا رغم أنه أخطر حكم في النظام — ولهذا كان لا بد من اختباره مباشرةً.
 
 /**
  * هل نحتاج تجربة **المفتاح التالي** بعد هذه النتيجة؟
@@ -873,11 +1031,6 @@ function looksKeyRelated(out: ProbeResult): boolean {
  * قد ينجح. أي جواب آخر نهائي: النموذج سليم أو ميت أو محجوب، وتكراره بلا فائدة.
  * (النسخة السابقة كان فيها فرعان متضادّان يخرجان دائماً ⇒ الحلقة ميتة، خل S4.)
  */
-export function shouldTryNextKey(out: ProbeResult): boolean {
-  if (out.status === 'provider_auth') return true;
-  // بعض المزوّدات تردّ 404 بنصّ عن المصادقة — نعامله كخطأ مفتاح لا كنموذج ميت
-  return out.status === 'rejected' && looksKeyRelated(out);
-}
 
 async function probeWithKeys(pid: string, model: string): Promise<ProbeResult> {
   const entry = router.getProvider(pid)!;
@@ -894,16 +1047,20 @@ async function probeWithKeys(pid: string, model: string): Promise<ProbeResult> {
     break;                                // أي جواب آخر نهائي: النموذج سليم/ميت/محجوب
   }
 
-  const last = attempts[attempts.length - 1].out;
+  // S5: الحكم يُحسب **مرة واحدة** في probe.ts ويُستخدم في النتيجة النهائية، لا في
+  // قرار التكرار فقط. كان 404 الذي نصّه عن المصادقة يُعالَج كخطأ مفتاح للتكرار ثم
+  // تُعاد نتيجته 'rejected' ⇒ يُحجب نموذج سليم ويُكتب صف رفض رغم أن السبب مفتاح.
+  const last = resolveProbeVerdict(attempts.map((a) => a.out));
 
   // خطأ مصادقة صريح: نوسم المفاتيح فقط، ونُخبر عن المزود، ولا نمسّ النموذج.
   // هذا هو الإصلاح الجوهري — كان يُرجَع 'rejected' فيُحجب النموذج ظلماً.
   if (last.status === 'provider_auth') {
     for (const a of attempts) {
-      if (a.out.status === 'provider_auth' && a.slot) {
+      // نوسم المفاتيح المعطوبة فقط — النموذج لا يُمسّ
+      if (isKeyLayerAttempt(a.out) && a.slot) {
         a.slot.status = 'auth_error';
         if (a.slot.id) {
-          db.updateProviderKey(a.slot.id, { status: 'auth_error', error: a.out.error }).catch(() => {});
+          db.updateProviderKey(a.slot.id, { status: 'auth_error', error: a.out.error }).catch((e) => noteStoreWriteFailure('updateProviderKey:probe-auth', e));
         }
       }
     }
@@ -973,8 +1130,13 @@ app.post('/api/health/:keyId/probe', async (req, res) => {
       await db.updateProviderKey(keyId, { status: 'quota_exhausted', error: out.error });
     } else if (out.status === 'ok' || out.status === 'slow') {
       await db.updateProviderKey(keyId, { status: 'ok', error: null });
+      // الفحص الناجح = محادثة حقيقية بهذا المفتاح → يُحسب استخداماً: يملأ «آخر
+      // استخدام» ويزيل «غير مؤكَّد» — وإلا بقي المفتاح المُثبَت مشبوهاً بعد الإثبات.
+      await db.touchProviderKey(keyId);
     } else if (out.status === 'rejected') {
       await db.updateProviderKey(keyId, { status: 'ok', error: null }); // النموذج ميت لا المفتاح
+      // المفتاح أصّاد (الرفض من مستوى النموذج) — استخدام حقيقي بنفس المنطق أعلاه
+      await db.touchProviderKey(keyId);
     }
 
     await db.logEvent('health.probe', {
@@ -1018,8 +1180,11 @@ app.post('/api/probe/:providerId/all', async (req, res) => {
   const results: ProbeResult[] = [];
   const BATCH = 5;
   for (let i = 0; i < models.length; i += BATCH) {
+    // S7: كل نموذج يُفحص عبر **كل** مفاتيح المزود (نفس مسار /everything وauto-probe).
+    // كان يستخدم مفتاحاً واحداً، فمزود بعشرة مفاتيح يُحكم عليه بأولها — إهدار حصة
+    // ونتيجة rate_limited كاذبة، وسلوك يختلف بين زرّين في نفس الشاشة.
     const batch = await Promise.all(models.slice(i, i + BATCH).map((m: string) =>
-      probeModel(providerId, entry.provider.baseUrl, entry.provider.apiKey, m, entry.provider.keyless)
+      probeWithKeys(providerId, m)
     ));
     for (const out of batch) {
       await db.upsertProbe(out.provider, out.model, out.status, out.latencyMs, out.error);
@@ -1137,6 +1302,11 @@ app.post('/api/probe/models', async (req, res) => {
 app.post('/api/probe/connect', async (req, res) => {
   const { baseUrl, apiKey, model } = req.body;
   if (!baseUrl || !model) return res.status(400).json({ error: 'baseUrl and model required' });
+  // S9: نفس حارس الطول المستخدم في محرّك الفحص — هذا المسار كان يمرّر الاسم للمزوّد
+  // كما هو بلا حدّ (حقن طلب خارجي ضخم).
+  if (typeof model !== 'string' || model.length > MAX_MODEL_NAME_LEN) {
+    return res.status(400).json({ error: `model name must be a string of at most ${MAX_MODEL_NAME_LEN} characters` });
+  }
   const check = guardBaseUrl(baseUrl);
   if (!check.ok) return res.status(400).json({ error: check.error });
 
@@ -1193,9 +1363,8 @@ async function healthLoop() {
     if (!e.provider.apiKey && !e.provider.keyless) continue;
     try {
       const ping = await e.provider.ping();
-      // فشل المصادقة (401/403) → auth_error لا down، حتى يعرف المستخدم أن المشكلة في المفتاح
-      const badAuth = ping.statusCode === 401 || ping.statusCode === 403;
-      const st = ping.ok ? 'up' : (badAuth ? 'auth_error' : 'down');
+      // نفس قاعدة الصدق: ping ناجح بمفاتيح ميتة للمحادثة لا يعني "up"
+      const st = truthfulPingStatus(e, ping);
       router.setStatus(id, st, ping.error, ping.ok ? undefined : 60_000);
       await db.logEvent(ping.ok ? 'health.ok' : 'health.fail', { provider: id, status: ping.ok ? 'ok' : 'error', latencyMs: ping.latencyMs, error: ping.error });
     } catch (err: any) {
@@ -1256,7 +1425,7 @@ scheduler.register({
     const r = await db.prune({
       eventsDays: EVENTS_RETENTION_DAYS, usageDays: USAGE_RETENTION_DAYS, rotationsKeep: ROTATIONS_KEEP
     });
-    const removed = r.events + r.usage + r.rotations;
+    const removed = r.events + r.usage + r.rotations + r.probes;
     if (removed > 0) {
       await db.logEvent('agents.retention', {
         status: 'success',
@@ -1277,8 +1446,7 @@ if (AGENTS_ENABLED) {
 }
 
 const PORT = process.env.PORT || 3001;
-server.listen(Number(PORT), HOST, () => {
-  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
+server.listen(Number(PORT), HOST, () => {  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
   console.log(`📡 WebSocket on ws://${HOST}:${PORT}/ws`);
   console.log(`🔌 OpenAI API: http://${HOST}:${PORT}/v1/chat/completions`);
   console.log(`📊 ${router.getProviderIds().length} providers loaded`);
@@ -1369,6 +1537,11 @@ app.patch('/api/providers/:id/keys/:keyId', async (req, res) => {
   if (!router.getProvider(id)) return res.status(404).json({ error: 'Provider not found' });
   if (!Number.isFinite(keyId)) return res.status(400).json({ error: 'invalid key id' });
   const body = req.body || {};
+  // نوع خاطئ لـenabled كان يُتجاهل بصمت مع ok:true — العميل يظن أنه عطّل
+  // ولم يحدث شيء (خلل مثبت؛ الأشقاء في /toggle يرفضون صراحة).
+  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
   try {
     const rows = await db.listProviderKeys(id) as any[];
     if (!rows.find(r => r.id === keyId)) return res.status(404).json({ error: 'Key not found' });
@@ -1400,6 +1573,11 @@ app.delete('/api/providers/:id/keys/:keyId', async (req, res) => {
   if (!router.getProvider(id)) return res.status(404).json({ error: 'Provider not found' });
   if (!Number.isFinite(keyId)) return res.status(400).json({ error: 'invalid key id' });
   try {
+    // ملكية إلزامية: بلا هذا كان DELETE عبر مسار مزود مختلف يحذف مفتاح غيره
+    // فعلاً (مثبت بإعادة إنتاج: مفتاح zz-own حُذف عبر مسار dahl بـ200).
+    // ويغطي أيضاً مفتاحاً غير موجود (كان يعيد 200 كاذبة).
+    const rows = await db.listProviderKeys(id) as any[];
+    if (!rows.find(r => Number(r.id) === keyId)) return res.status(404).json({ error: 'Key not found' });
     await db.deleteProviderKey(keyId);
     await router.reloadProviderKeys(id);
     invalidateModelsCache();
@@ -1528,17 +1706,32 @@ app.post('/api/providers/add', async (req, res) => {
     if (yaml.providers.find((p: any) => p.id === id)) {
       return res.status(409).json({ error: 'Provider already exists' });
     }
-    const entry: any = { id, name, baseUrl: check.url.replace(/\/+$/, ''), format: 'openai', tier: tier || 4, enabled: true, models: models || 'auto' };
+    const entry: any = {
+      id, name, baseUrl: check.url.replace(/\/+$/, ''), format: 'openai',
+      // تحقق نوعي: tier نصي كان يُخزَّن كما هو فيكسر مقارنات الترتيب (NaN)،
+      // وmodels غير المصفوفة/auto يُخفي المزود من التفعل التلقائي (خلل مقروء بالسطر).
+      tier: Number.isFinite(Number(tier)) && Number(tier) > 0 ? Number(tier) : 4,
+      enabled: true,
+      models: Array.isArray(models) || models === 'auto' ? models : 'auto'
+    };
     // المفتاح يُخزَّن في قاعدة البيانات (يدعم عدة مفاتيح لكل مزود) — لا نكتبه في YAML
-    entry.apiKeyEnv = `${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+    // الاسم الحقيقي لمتغيّر البيئة من الكتالوج إن عُرِّف (مثال: google-ai → GEMINI_API_KEY) — وإلا يُشتق من المعرّف
+    const catEntry = catalogEntry(id);
+    entry.apiKeyEnv = catEntry?.apiKeyEnv || `${id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`;
+    // رابط تسجيل المفتاح من الكتالوج — الواجهة تعرضه زر "Get API key"
+    if (catEntry?.signupUrl) entry.signupUrl = catEntry.signupUrl;
     yaml.providers.push(entry);
     writeProvidersYaml(yaml);
     router.addProvider(entry);
     invalidateModelsCache();
     if (apiKey) {
       await db.addProviderKey(id, String(apiKey).trim(), entry.apiKeyEnv);
-      await router.reloadProviderKeys(id);
     }
+    // **مهم**: نُعيد بناء المفاتيح من القاعدة دائماً — لا فقط عند إرسال مفتاح.
+    // بلا هذا كان مزود جديد بلا مفتاح يعرض «مفتاحاً وهمياً» (hasKey:true وصف
+    // "بلا مفتاح" لا وجود له في القاعدة)، وكانت إعادة إضافة مزود محذوف تُخفي
+    // مفاتيحه المستبقاة (خلل مثبت بإعادة إنتاج).
+    await router.reloadProviderKeys(id);
     await db.logEvent('provider.added', { provider: id, status: 'success', meta: { hasKey: !!apiKey } });
     broadcast({ type: 'provider-added', providerId: id });
     const summary = router.keySummary(router.getProvider(id));
@@ -1622,8 +1815,13 @@ app.patch('/api/providers/:id', async (req, res) => {
   }
 });
 
+// حذف مزود.
+// S12: مفاتيحه في القاعدة **تبقى** افتراضياً (إعادة إضافته تستعيدها)، والحذف
+// النهائي يتطلّب طلباً صريحاً `?purgeKeys=1`. قبل ذلك كانت الواجهة توعد بحذف
+// المفاتيح بينما هي باقية بصمت ⇒ ادّعاء غير صحيح على سرّ.
 app.delete('/api/providers/:id', async (req, res) => {
   const id = req.params.id;
+  const purgeKeys = req.query.purgeKeys === '1' || req.query.purgeKeys === 'true';
   try {
     const yaml = readProvidersYaml();
     const target = yaml.providers.find((p: any) => p.id === id);
@@ -1633,15 +1831,25 @@ app.delete('/api/providers/:id', async (req, res) => {
       return res.status(404).json({ error: 'Provider not found' });
     }
     writeProvidersYaml(yaml);
-    // نحذف مفتاحه من .env أيضاً — كما تعد الواجهة في رسالة التأكيد
+    // نحذف سطر متغيّر البيئة (لم يبق له معنى بلا مزود)
     if (target?.apiKeyEnv) upsertEnvVar(target.apiKeyEnv, null);
+    const rows = await db.listProviderKeys(id) as any[];
+    if (purgeKeys) {
+      for (const row of rows) await db.deleteProviderKey(row.id);
+    }
     router.removeProvider(id);
     invalidateModelsCache();
-    await db.logEvent('provider.removed', { provider: id, status: 'success' });
+    await db.logEvent('provider.removed', {
+      provider: id, status: 'success',
+      meta: { keysRetained: purgeKeys ? 0 : rows.length, purged: purgeKeys }
+    });
     broadcast({ type: 'provider-removed', providerId: id });
-    res.json({ ok: true, envVarRemoved: target?.apiKeyEnv || null });
+    res.json({
+      ok: true, envVarRemoved: target?.apiKeyEnv || null,
+      keysRetained: purgeKeys ? 0 : rows.length, purged: purgeKeys
+    });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: sanitizeErrorMessage(e) });
   }
 });
 
@@ -1749,4 +1957,41 @@ app.use((err: any, _req: any, res: any, next: any) => {
   const safe = sanitizeErrorMessage(err);
   console.error('[unhandled]', safe);
   res.status(500).json({ error: { message: 'خطأ داخلي في البوابة', type: 'internal_error' } });
+});
+
+// ===== إغلاق نظيف (SIGINT/SIGTERM) =====
+// بلا هذا كان كل إيقاف يضيّع: عدّادات الاستخدام المعلّقة (5 ثوانٍ)، واتصالات
+// القاعدة، والبثّات الجارية. نغلق الاستقبال أولاً (توقّف طلبات جديدة) ثم
+// نفرّغ الكاشّات ونغلق القاعدة بسقف زمني قاسٍ حتى لا يعلّق الإيقاف.
+let shuttingDown = false;
+async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n${signal} — إغلاق نظيف…`);
+  const force = setTimeout(() => { console.error('لم يكتمل الإغلاق في 10 ثوانٍ — خروج قسري'); process.exit(1); }, 10_000);
+  if (typeof force.unref === 'function') force.unref();
+  try {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await Promise.allSettled([router.flushTouches(), db.flushApiTouches()]);
+    await db.close().catch(() => {});
+    console.log('✓ أُغلق الخادم والقاعدة والعدّادات أُفرغت');
+  } catch (e: any) {
+    console.error('خطأ أثناء الإغلاق:', e?.message || e);
+  } finally {
+    clearTimeout(force);
+    process.exit(0);
+  }
+}
+process.on('SIGINT', () => void shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+// ===== شبكة أمان: رفض وعد غير ملتقط لا يُسقط البوابة =====
+// الدرس المُثبَت: Express 4 لا يلتقط رمي معالجات async، وNode يُنهي العملية على
+// أول unhandled rejection — فطلب واحد بمدخل غير متوقع كان يقتل الخادم كاملاً
+// (وجدناه فعلاً: GET /api/logs?limit=abc). الجذر أُصلح (تحقق كامل في المسار)،
+// وهذه شبكة تلتقط أي مسار مستقبلي لم يُفحص بعد: تسجيل صاخب + البقاء في الخدمة.
+// العميل لا يشعر: طلبه سينتهي بانتهاء مهلة الاتصال، والبقية يعملون.
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[unhandledRejection] رُفض وعد بلا معالجة — الخادم مستمر:',
+    sanitizeErrorMessage(reason, 500));
 });

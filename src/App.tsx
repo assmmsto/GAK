@@ -40,13 +40,14 @@ export default function App() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
   };
 
-  // كشف الـ drift: لو في auth_error جديد (مزود فقد مفتاحه بين فترتين)
-  const [knownAuthErrors, setKnownAuthErrors] = useState<Set<string>>(new Set());
+  // كشف الـ drift: لو صار مزود auth_error ولم يكن قبل (مرة واحدة لكل انتقال)
+  const [knownAuthErrors, setKnownAuthErrors] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (!status?.providers) return;
     const current = new Set(status.providers.filter(p => p.status === 'auth_error').map(p => p.id));
-    // أول لقطة: نحفظ بدون تنبيه
-    if (knownAuthErrors.size === 0 && current.size === 0) {
+    // S11: أول لقطة تُحفظ بلا تنبيه — حتى لو كان فيها مزودات ميتة أصلاً. كان
+    // الشرط يتطلّب لقطة أولى **فارغة**، فمن عنده مفتاح ميت يرى تنبيهاً كاذباً كل مرة.
+    if (knownAuthErrors === null) {
       setKnownAuthErrors(current);
       return;
     }

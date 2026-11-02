@@ -1,5 +1,7 @@
 // server/security.ts — أدوات أمنية مشتركة: تعقيم الأخطاء + ترويسات + حد المعدل
 // القاعدة: لا يُعاد نص خام من مزود/شبكة/استثناء إلى العميل أو السجل قبل تعقيمه.
+import { timingSafeEqual } from 'node:crypto';
+
 const SENSITIVE_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9_-]{8,}/g,          // OpenAI / DeepSeek / generic
   /sk-or-v1-[A-Za-z0-9_-]{8,}/g,    // OpenRouter
@@ -15,7 +17,34 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /apx_[A-Za-z0-9]{8,}/g,           // Aphmix
   /Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   /api[_-]?key\s*[:=]\s*['\"]?[^'\"\s,}]{8,}/gi,
+  // مفاتيح البوابة نفسها (مولَّدة هنا أو بادئة نشر مخصصة) — لو انعكست في
+  // رسالة مزود أو استثناء يجب ألّا تصل العميل أو السجل.
+  /\bgw_[A-Za-z0-9]{20,}\b/g,
+  /\bdahl_[A-Za-z0-9_-]{20,}\b/g,
 ];
+
+/**
+ * مقارنة ثوابت زمنية لنصّين سريّين. لماذا: `a === b` يتوقف عند أول حرف
+ * مختلف فيسمح بقياس البادئة عبر الفروق الزمنية. الأطوال المختلفة تخرج
+ * مبكراً (لا يقارن نصان بطولين مختلفين أصلاً) — وهذا مقبول: طول التوكن
+ * ليس سرّاً وبالتأكيد لا يفتح تخمينه.
+ */
+export function timingSafeEqualStrings(a: string, b: string): boolean {
+  const ba = Buffer.from(String(a ?? ''), 'utf8');
+  const bb = Buffer.from(String(b ?? ''), 'utf8');
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
+/** هل الطلب وصل عبر وسيط عكسي (reverse proxy)؟ */
+// لماذا يهم: الحماية على /api تُقيَّم من ربط HOST، لكن نشراً شائعاً يربط الخادم
+// على 127.0.0.1 ويكشفه بروكسي للإنترنت — فيتخطى فحص HOST بالكامل. الترويسات
+// التي يضيفها البروكسي هي الدليل الوحيد المتاح داخل الطلب.
+export function isProxiedRequest(req: { headers?: Record<string, unknown> }): boolean {
+  const h = req?.headers || {};
+  return ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-real-ip']
+    .some(k => h[k] !== undefined && h[k] !== '');
+}
 
 /**
  * يعقّم أي نص قبل إعادته للعميل أو تخزينه في السجلات.

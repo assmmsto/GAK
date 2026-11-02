@@ -49,7 +49,7 @@ export interface KeySource {
    * العقد: لا يرمي أبداً — أي فشل يُعاد داخل النتيجة مع رسالة معقّمة،
    * لأن الفشل يجب ألّا يُسقط المزامنة ولا يمسّ المفاتيح القائمة.
    */
-  fetch(signal: AbortSignal): Promise<{ entries: SecretEntry[]; error?: string }>;
+  fetch(signal: AbortSignal): Promise<{ entries: SecretEntry[]; error?: string; ignored?: string[] }>;
 }
 
 /** تحقق من شكل معرّف المزود — نفس القاعدة المستخدمة عند إضافة مزود. */

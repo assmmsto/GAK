@@ -2,8 +2,11 @@
 import { createHash } from 'node:crypto';
 import { OpenAIProvider } from './provider.js';
 import { scoreKey, type KeyScoreInput } from './key-score.js';
+import { sanitizeErrorMessage } from './security.js';
+import { OK_STALE_MS } from './probe.js';
 import type { Config } from './config.js';
 import type { EventDB } from './db.js';
+import { noteStoreWriteFailure } from './db.js';
 
 export interface RouteResult {
   ok: boolean; status: number; data?: any; stream?: any; headers?: any;
@@ -41,6 +44,16 @@ interface ProviderEntry {
 
 // عزل المفتاح المنتهي حصته: 5 دقائق ثم يُجرَّب مجدداً
 const KEY_QUOTA_BLOCK_MS = 5 * 60 * 1000;
+// حصة مستنفدة **دائماً** ("monthly allowance used up", "insufficient_quota")
+// لا تعود بعد 5 دقائق بل بعد أسبوع/شهر — العزل القصير كان يُبقي الموجّه يقرع
+// المفتاح الميت كل 5 دقائق (قِيسَ: 314 طلباً فاشلاً على مفتاح واحد).
+const KEY_QUOTA_PARKED_MS = 6 * 60 * 60 * 1000; // 6 ساعات
+// دلالات النفاد الدائم **الدقيقة** — لا كلمات عامة مثل «top up» أو «balance»:
+// رسالة ضغط التزامن من مزود (model_concurrency "…admitted first. Top up at…")
+// طابقت «top up» فعُزلت 14 مفتاحاً سليماً 6 ساعات وأوقف النظام (خلل مُصلَح).
+// الأولوية دائماً لكشف العابر: ضغط تزامن/إعادة محاولة ⇒ عزل قصير مهما بدا النص.
+const TRANSIENT_RATE_RE = /concurrency|capacity|admitted first|try again|retry|temporarily|overloaded|slow down/i;
+const PERMANENT_QUOTA_RE = /insufficient_quota|exhausted your current quota|allowance\s+(is\s+)?used\s+up|monthly allowance|out of credits/i;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 // صلاحية نتيجة الفحص: بعدها لا يُحجب النموذج — قد يكون المزود عاد أو تغيّر النموذج.
 // بلا هذا، نموذج رُفض قبل شهر يبقى محجوباً للأبد بلا أي طريق للعودة.
@@ -100,6 +113,31 @@ export class Router {
   private release(pid: string): void {
     const n = (this.inflight.get(pid) || 1) - 1;
     if (n <= 0) this.inflight.delete(pid); else this.inflight.set(pid, n);
+  }
+
+  // ===== عدّاد استخدام المفاتيح (مؤجَّل) =====
+  // لماذا: `touchProviderKey` كان كتابة قاعدة لكل طلب ناجح. الآن نجمّع العدّ ونكتب
+  // دفعة واحدة كل 5 ثوانٍ — نفس المعلومة بكتابة واحدة لكل مفتاح في نافذة النبضة.
+  private pendingTouches = new Map<number, number>();
+  private touchTimer: any = null;
+
+  private deferTouch(keyId: number): void {
+    this.pendingTouches.set(keyId, (this.pendingTouches.get(keyId) || 0) + 1);
+    if (this.touchTimer) return;
+    this.touchTimer = setTimeout(() => { this.touchTimer = null; void this.flushTouches(); }, 5000);
+    if (typeof this.touchTimer?.unref === 'function') this.touchTimer.unref();
+  }
+
+  /** يكتب عدّادات الاستخدام المعلّقة. عامّة لتُنادى من الاختبار وعند الإغلاق. */
+  async flushTouches(): Promise<number> {
+    if (!this.pendingTouches.size) return 0;
+    const batch = [...this.pendingTouches.entries()];
+    this.pendingTouches.clear();
+    for (const [id, n] of batch) {
+      try { await this.db.touchProviderKey(id, n); }
+      catch (e) { noteStoreWriteFailure('touchProviderKey', e); }
+    }
+    return batch.length;
   }
 
   // ===== توفير الرموز + ذاكرة الردود المتطابقة =====
@@ -359,7 +397,7 @@ export class Router {
       if (s.blockedUntil && now >= s.blockedUntil) {
         s.blockedUntil = undefined;
         if (s.status === 'quota_exhausted') s.status = 'unknown';
-        if (s.id) this.db.updateProviderKey(s.id, { status: 'unknown', blockMs: null }).catch(() => {});
+        if (s.id) this.db.updateProviderKey(s.id, { status: 'unknown', blockMs: null }).catch((e) => noteStoreWriteFailure('updateProviderKey', e));
       }
     }
   }
@@ -486,7 +524,9 @@ export class Router {
   getProvider(id: string) { return this.providers.get(id); }
 
   // ===== النماذج المرفوضة من الفحص + النماذج المُتحقَّق منها =====
-  private probeRejections = new Map<string, Set<string>>();
+  // القيمة = وقت الرفض، لأن الصلاحية (PROBE_TTL_MS) يجب أن تُحترم **أثناء التشغيل**
+  // أيضاً — كانت تُطبَّق عند الإقلاع فقط، فتبقى عملية تعمل أسبوعاً تحجب نموذجاً رُفض أمس.
+  private probeRejections = new Map<string, Map<string, number>>();
   private probeVerified = new Map<string, Set<string>>();
   private static EMPTY_SET: Set<string> = new Set();
 
@@ -501,9 +541,11 @@ export class Router {
         // 'rejected' فقط تحجب. 'provider_auth' مشكلة مفتاح لا تُحجب نموذجاً.
         if (r.status === 'rejected') {
           let s = this.probeRejections.get(r.provider);
-          if (!s) { s = new Set(); this.probeRejections.set(r.provider, s); }
-          s.add(r.model);
-        } else if (r.status === 'ok') {
+          if (!s) { s = new Map(); this.probeRejections.set(r.provider, s); }
+          s.set(r.model, Number(r.checked_at) || now);
+        } else if (r.status === 'ok' && age <= OK_STALE_MS) {
+          // "متحقَّق منه" له صلاحية أيضاً: نجاح منذ 36 يوماً لا يجعل النموذج
+          // يتقدم على غيره في التوجيه — دورة auto-probe تعيد التحقق ثم تعيده هنا.
           let v = this.probeVerified.get(r.provider);
           if (!v) { v = new Set(); this.probeVerified.set(r.provider, v); }
           v.add(r.model);
@@ -520,8 +562,8 @@ export class Router {
     //   (فقد يكون حُجب سابقاً بسبب نفس المفتاح المعطّل).
     let s = this.probeRejections.get(provider);
     if (status === 'rejected') {
-      if (!s) { s = new Set(); this.probeRejections.set(provider, s); }
-      s.add(model);
+      if (!s) { s = new Map(); this.probeRejections.set(provider, s); }
+      s.set(model, Date.now());
     } else if (s) {
       s.delete(model);
     }
@@ -539,15 +581,31 @@ export class Router {
     else { this.probeRejections.clear(); this.probeVerified.clear(); }
   }
 
+  /**
+   * النماذج المحجوبة الآن لهذا المزود.
+   * تُسقط ما انتهت صلاحيته (PROBE_TTL_MS) **لحظياً** لا عند الإقلاع فقط، وإلا بقي
+   * نموذج عاد للحياة محجوباً في عملية لم تُعَد تشغيلها.
+   */
   rejectedModels(pid: string): Set<string> {
     const s = this.probeRejections.get(pid);
-    return s || Router.EMPTY_SET;
+    if (!s || !s.size) return Router.EMPTY_SET;
+    const now = Date.now();
+    for (const [model, at] of s) {
+      if (now - at > PROBE_TTL_MS) s.delete(model);
+    }
+    if (!s.size) { this.probeRejections.delete(pid); return Router.EMPTY_SET; }
+    return new Set(s.keys());
   }
 
   // نماذج نجح فحصها فعلاً (طلب محادثة حقيقي) — أساس الاختيار التلقائي
   verifiedModels(pid: string): Set<string> {
     const s = this.probeVerified.get(pid);
     return s || Router.EMPTY_SET;
+  }
+
+  /** 0 = للمزود نموذج نجح فحصه فعلاً · 1 = لا نتائج فحص بعد (أو كلها فشلت). */
+  private verifiedRank(e: any): number {
+    return this.verifiedModels(e?.provider?.id)?.size ? 0 : 1;
   }
 
   // نموذج ميت أو مدفوع اكتُشف من طلب حقيقي → نعلّمه مرفوضاً في الذاكرة وقاعدة البيانات
@@ -559,12 +617,12 @@ export class Router {
       e.knownModels = e.knownModels.filter(m => m !== model);
       if (e.cachedModel === model) e.cachedModel = undefined;
     }
-    this.db.upsertProbe(pid, model, 'rejected', 0, (error || 'unavailable').slice(0, 200)).catch(() => {});
+    this.db.upsertProbe(pid, model, 'rejected', 0, (error || 'unavailable').slice(0, 200)).catch((e) => noteStoreWriteFailure('upsertProbe', e));
     this.db.logEvent('model.auto_rejected', {
       provider: pid, model, status: 'error',
       error: (error || '').slice(0, 150),
       meta: { learnedFrom: 'live request' }
-    }).catch(() => {});
+    }).catch((e) => noteStoreWriteFailure('logEvent:auto_rejected', e));
   }
 
   // المزود صالح للتوجيه: مُفعَّل + غير معطوب + عنده مفتاح متاح على الأقل
@@ -593,9 +651,13 @@ export class Router {
 
   private resolve(modelStr?: string) {
     if (!modelStr || modelStr === 'auto') {
+      // الأفضلية لمزود **نجح فحصه فعلاً** قبل ترتيب tier: مزودات tier=1 المجهولة
+      // كانت تُقدَّم على مزودات معروفة تعمل، فيفشل «auto» رغم توفّر نموذج متحقّق منه.
       const sorted = [...this.providers.values()]
         .filter(e => this.usable(e))
-        .sort((a, b) => a.provider.tier - b.provider.tier);
+        .sort((a, b) =>
+          this.verifiedRank(a) - this.verifiedRank(b) ||
+          a.provider.tier - b.provider.tier);
       return sorted[0] ? { providerId: sorted[0].provider.id, model: 'auto' } : null;
     }
     if (modelStr.includes('/')) {
@@ -625,7 +687,10 @@ export class Router {
     const sortByTier = (a: any, b: any) => {
       const aBad = (a.status === 'quota_exhausted' || a.status === 'down') ? 1 : 0;
       const bBad = (b.status === 'quota_exhausted' || b.status === 'down') ? 1 : 0;
-      return (aBad - bBad) || (a.provider.tier - b.provider.tier);
+      return (aBad - bBad)
+        || (a.provider.tier - b.provider.tier)
+        // مزود بلا أي نموذج مُتحقَّق منه = احتمال فشل أعلى ⇒ يأتي بعد غيره
+        || (this.verifiedRank(a) - this.verifiedRank(b));
     };
     const wantModel = initial?.model && initial.model !== 'auto' ? initial.model : 'auto';
     if (!initial || !this.usable(this.providers.get(initial.providerId))) {
@@ -736,13 +801,13 @@ export class Router {
       }
     } finally {
       // نُسجّل حتى لو انقطع العميل — الرموز استُهلكت فعلاً
-      if (usage) await this.db.logUsage(providerId, trackKey, model, usage).catch(() => {});
+      if (usage) await this.db.logUsage(providerId, trackKey, model, usage).catch((e) => noteStoreWriteFailure('logUsage', e));
       await this.db.logEvent(sawError ? 'chat.stream_error' : 'chat.success', {
         provider: providerId, keyId: trackKey, model,
         status: sawError ? 'error' : 'success',
         latencyMs: Date.now() - t0,
         meta: { streamed: true, usageCaptured: !!usage }
-      }).catch(() => {});
+      }).catch((e) => noteStoreWriteFailure('logEvent', e));
       // تحرير عدّاد التزامن — في finally ليُحرَّر حتى لو انقطع البث بخطأ
       try { onDone?.(); } catch { /* لا نُفشل البث بسبب خطأ تحرير */ }
     }
@@ -771,10 +836,15 @@ export class Router {
       const hit = this.cacheGet(cKey);
       if (hit) {
         this.cacheHits++;
-        await this.db.logEvent('chat.cache_hit', { model: hit.model, status: 'success', latencyMs: Date.now() - t0 }).catch(() => {});
+        // الحمولة المخزَّنة {data, sub}: نُعيد وسم الاستبدال معها — كان يضيع عند
+        // الإصابة فيرى العميل X-Provider:cache بلا أي إشارة أن النموذج غُيّر،
+        // بينما النداء الأول أعلنه (خلل اتساق مثبت).
+        const payload = hit.data ?? hit;
+        await this.db.logEvent('chat.cache_hit', { model: payload.model, status: 'success', latencyMs: Date.now() - t0 }).catch((e) => noteStoreWriteFailure('logEvent', e));
         return {
-          ok: true, status: 200, data: hit, model: hit.model, providerId: 'cache',
+          ok: true, status: 200, data: payload, model: payload.model, providerId: 'cache',
           keyId: callerKey || 'k1',
+          _substituted: hit.sub || undefined,
           usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
         };
       }
@@ -786,6 +856,26 @@ export class Router {
     const tried = new Set<string>();
     const errors: any[] = [];
     const wantModel = initial?.model && initial.model !== 'auto' ? initial.model : null;
+
+    // لا مزود قابل للمحاولة: نُفسّر السبب بدل «All providers failed» المبهمة —
+    // هذا هو الفرق بين «متصل لكن لا يعمل» وبين رسالة تقول الحقيقة والإصلاح.
+    if (!order.length) {
+      const reasons = [...this.providers.entries()].map(([id, e]) => {
+        if (e.enabled === false) return `${id}: معطّل`;
+        if (e.status === 'down') return `${id}: down (${e.lastError || 'transient'})`;
+        if (e.status === 'auth_error') return `${id}: مفتاح خاطئ`;
+        if (e.blockedUntil && Date.now() < e.blockedUntil) return `${id}: معزول ${Math.ceil((e.blockedUntil - Date.now()) / 1000)}s`;
+        const slots = this.availableKeySlots(e);
+        if (!slots.length) return `${id}: لا مفتاح متاح (${e.keys.length} مفتاح، ${e.keys.filter((k: any) => k.status === 'quota_exhausted').length} منتهي الحصة)`;
+        return `${id}: غير جاهز`;
+      });
+      await this.db.logEvent('chat.all_failed', { status: 'error', error: 'no usable provider: ' + reasons.join(' | ').slice(0, 300) }).catch((e) => noteStoreWriteFailure('logEvent', e));
+      return {
+        ok: false, status: 503,
+        error: `No usable provider — ${reasons.join(' · ')}`,
+        attempts: []
+      };
+    }
 
     // ===== سقف زمني شامل للطلب كله =====
     // بلا هذا، محاولة كل مزود على حدة بمهلته (60 ثانية) تعني أن أسوأ حالة
@@ -808,22 +898,24 @@ export class Router {
         errors.push(deadlineError());
         break;
       }
-      tried.add(attempt.providerId);
       const entry = this.providers.get(attempt.providerId);
       if (!entry) continue;
       if (!this.usable(entry)) continue;
 
       // احترام سقف التزامن: مزود مشبع نتركه وننتقل لغيره بدل الانتظار
+      // S4: التخطي هنا **لا يستهلك محاولة** — كان `tried.add` قبل الفحص، فمزوّدان
+      // مشبعان يُنهيان الطلب بـ«All providers failed» رغم وجود مزود جاهز لم يُجرَّب.
       if (!this.acquire(attempt.providerId)) {
-        errors.push({ providerId: attempt.providerId, status: 0, error: 'provider at maxConcurrent — skipped' });
+        errors.push({ providerId: attempt.providerId, status: 0, error: 'provider at maxConcurrent — skipped (does not count as an attempt)' });
         continue;
       }
+      tried.add(attempt.providerId);
 
       const firstPick = await this.pickModel(entry, wantModel);
       let modelForThis = firstPick.model;
       if (!modelForThis) {
         if (firstPick.notFound) {
-          errors.push({ providerId: attempt.providerId, status: 404, error: 'model "${wantModel}" not offered by ${attempt.providerId}', model: wantModel });
+          errors.push({ providerId: attempt.providerId, status: 404, error: `model "${wantModel}" not offered by ${attempt.providerId}`, model: wantModel });
           this.release(attempt.providerId);
           continue;
         }
@@ -866,13 +958,18 @@ export class Router {
         });
 
         if (result.ok) {
+          // S6: كان كل طلب ناجح يكتب صفّين على مفتاحه (عدّاد + حالة). العدّاد صار
+          // دفعياً كل 5 ثوانٍ، والحالة تُكتب **مرة واحدة عند تغيّرها** فقط.
+          const statusChanged = slot.status !== 'ok';
           slot.status = 'ok';
           slot.blockedUntil = undefined;
           slot.requests++;
           if (slot.id) {
-            this.db.touchProviderKey(slot.id).catch(() => {});
-            // نحفظ الحالة أيضاً — وإلا فُقدت عند إعادة تحميل المفاتيح وظهر المفتاح "لم يُختبر"
-            this.db.updateProviderKey(slot.id, { status: 'ok', error: null, blockMs: null }).catch(() => {});
+            this.deferTouch(slot.id);
+            if (statusChanged) {
+              this.db.updateProviderKey(slot.id, { status: 'ok', error: null, blockMs: null })
+                .catch((e) => noteStoreWriteFailure('updateProviderKey:ok', e));
+            }
           }
           entry.status = 'up';
           entry.lastError = undefined;
@@ -884,6 +981,9 @@ export class Router {
             ...result, providerId: attempt.providerId, keyId: trackKey,
             model: modelForThis, providerKeyLabel: slot.label
           };
+          // تشخيص: مزودون تُخطّوا (سقف تزامن) قبل هذا النجاح — يُعادون للعميل
+          // رغم نجاح الطلب، فيبقى أثر التخطي مرئياً بدل أن يضيع.
+          if (errors.length) out.attempts = errors;
           if (wantModel && wantModel !== modelForThis) {
             out._substituted = { requested: wantModel, actual: modelForThis, providerId: attempt.providerId };
           }
@@ -892,51 +992,68 @@ export class Router {
             // (لا الآن) وإلا حسبنا طلباً منتهياً بينما هو ما زال يسحب رموزاً.
             out.stream = this.teeStreamUsage(result.stream, attempt.providerId, trackKey, modelForThis, t0, () => this.release(attempt.providerId));
           } else {
-            if (result.usage) await this.db.logUsage(attempt.providerId, trackKey, modelForThis, result.usage).catch(() => {});
-            if (cKey && result.data) this.cachePut(cKey, result.data);
-            await this.db.logEvent('chat.success', {
-              provider: attempt.providerId, keyId: trackKey, model: modelForThis,
-              status: 'success', latencyMs: Date.now() - t0,
-              meta: {
-                providerKey: slot.label, keysTried: keyTried,
-                trimmed: prepared.trimmed, savedChars: prepared.savedChars
-              }
-            }).catch(() => {});
+            if (cKey && result.data) this.cachePut(cKey, { data: result.data, sub: out._substituted || null });
+            // S6: الاستخدام والسجل مستقلان ⇒ بالتوازي لا بالتسلسل (زمن إضافي مجاني)
+            await Promise.all([
+              result.usage
+                ? this.db.logUsage(attempt.providerId, trackKey, modelForThis, result.usage)
+                    .catch((e) => noteStoreWriteFailure('logUsage', e))
+                : Promise.resolve(),
+              this.db.logEvent('chat.success', {
+                provider: attempt.providerId, keyId: trackKey, model: modelForThis,
+                status: 'success', latencyMs: Date.now() - t0,
+                meta: {
+                  providerKey: slot.label, keysTried: keyTried,
+                  trimmed: prepared.trimmed, savedChars: prepared.savedChars
+                }
+              }).catch((e) => noteStoreWriteFailure('logEvent:chat.success', e))
+            ]);
             this.release(attempt.providerId);
           }
           return out;
         }
 
-        const snippet = result.error?.slice(0, 200);
-        // 429 → عزل هذا المفتاح وحده وتجربة المفتاح التالي فوراً
+        // نص الخطأ يصل العميل في `attempts` ويُخزَّن في القاعدة — نص خام من مزود
+        // قد يُضمّن مفتاحها نفسها (وهذا سبب وجود sanitizeErrorMessage أصلاً).
+        const snippet = sanitizeErrorMessage(result.error, 200);
+        // 429 → عزل هذا المفتاح وحده وتجربة المفتاح التالي فوراً.
+        // نص الخطأ يفرّق العابر من الدائم: ضغط التزامن عابر (دقائق)، ونفاد
+        // الحصة الشهرية دائم (ساعات). الترتيب مقصود: العابر يُفحص أولاً.
         if (result.status === 429) {
+          const permanentQuota = !TRANSIENT_RATE_RE.test(snippet || '') && PERMANENT_QUOTA_RE.test(snippet || '');
+          const parkMs = permanentQuota ? KEY_QUOTA_PARKED_MS : KEY_QUOTA_BLOCK_MS;
           slot.status = 'quota_exhausted';
-          slot.blockedUntil = Date.now() + KEY_QUOTA_BLOCK_MS;
-          if (slot.id) this.db.updateProviderKey(slot.id, { status: 'quota_exhausted', error: snippet, blockMs: KEY_QUOTA_BLOCK_MS }).catch(() => {});
+          slot.blockedUntil = Date.now() + parkMs;
+          if (slot.id) this.db.updateProviderKey(slot.id, { status: 'quota_exhausted', error: snippet, blockMs: parkMs }).catch((e) => noteStoreWriteFailure('updateProviderKey', e));
           await this.db.logEvent('key.quota_exhausted', {
             provider: attempt.providerId, model: modelForThis, status: 'error',
-            error: snippet, meta: { providerKeyId: slot.id, label: slot.label }
-          }).catch(() => {});
+            error: snippet, meta: { providerKeyId: slot.id, label: slot.label, permanentQuota, parkMs }
+          }).catch((e) => noteStoreWriteFailure('logEvent', e));
           errors.push({ providerId: attempt.providerId, status: 429, error: `key ${slot.label}: quota exhausted`, model: modelForThis });
           continue;
         }
         // 401 = مفتاح خاطئ دائماً → يوسم نهائياً وينتقل للتالي
         if (result.status === 401) {
           slot.status = 'auth_error';
-          if (slot.id) this.db.updateProviderKey(slot.id, { status: 'auth_error', error: snippet }).catch(() => {});
+          if (slot.id) this.db.updateProviderKey(slot.id, { status: 'auth_error', error: snippet }).catch((e) => noteStoreWriteFailure('updateProviderKey', e));
           await this.db.logEvent('key.auth_error', {
             provider: attempt.providerId, status: 'error',
             error: snippet, meta: { providerKeyId: slot.id, label: slot.label }
-          }).catch(() => {});
+          }).catch((e) => noteStoreWriteFailure('logEvent', e));
           errors.push({ providerId: attempt.providerId, status: 401, error: `key ${slot.label}: invalid`, model: modelForThis });
           continue;
         }
-        // 403 قد يعني «مفتاح بلا صلاحية» أو «نموذج مدفوع» — نفرّق بالرسالة
+        // 403 قد يعني «مفتاح بلا صلاحية» أو «نموذج مدفوع» — نفرّق بالرسالة.
+        // **ترتيب الفحص مقصود**: نصّ يخصّ المفتاح (api key/permission/unauthorized…)
+        // يُقدَّم دائماً — كان المطابق لكلمة مثل "insufficient" وحدها يوسم النموذج
+        // ميتاً رغم أن الرسالة عن المفتاح ("insufficient permissions for this API
+        // key")، فيُقتل نموذج سليم 24 ساعة (خلل مثبت بإعادة إنتاج داخل العملية).
         if (result.status === 403) {
-          const modelLevel = /premium|paid|plan|balance|subscribe|wallet|upgrade|credits?|insufficient/i.test(snippet || '');
+          const keyText = /api\s?key|permission|unauthor|authentication|forbidden|invalid token|not allowed/i.test(snippet || '');
+          const modelLevel = !keyText && /premium|paid|plan|balance|subscribe|wallet|upgrade|credits?|insufficient|deposited/i.test(snippet || '');
           if (!modelLevel) {
             slot.status = 'auth_error';
-            if (slot.id) this.db.updateProviderKey(slot.id, { status: 'auth_error', error: snippet }).catch(() => {});
+            if (slot.id) this.db.updateProviderKey(slot.id, { status: 'auth_error', error: snippet }).catch((e) => noteStoreWriteFailure('updateProviderKey', e));
             errors.push({ providerId: attempt.providerId, status: 403, error: `key ${slot.label}: forbidden`, model: modelForThis });
             continue;
           }
@@ -975,7 +1092,7 @@ export class Router {
         await this.db.logEvent('chat.error', {
           provider: attempt.providerId, model: modelForThis, status: 'error',
           error: providerLevelFailure.error, latencyMs: Date.now() - t0
-        }).catch(() => {});
+        }).catch((e) => noteStoreWriteFailure('logEvent', e));
         const st = providerLevelFailure.status;
         if (st === 502 || st === 503 || st === 504 || st === 500) {
           entry.transientErrors = (entry.transientErrors || 0) + 1;
@@ -1002,7 +1119,7 @@ export class Router {
         await this.db.logEvent('provider.exhausted', {
           provider: attempt.providerId, status: 'error',
           meta: { keys: entry.keys.length, invalid: allInvalid }
-        }).catch(() => {});
+        }).catch((e) => noteStoreWriteFailure('logEvent', e));
       }
 
       // تحرير عدّاد التزامن لهذا المزود بعد انتهاء محاولاته كلها
@@ -1010,21 +1127,28 @@ export class Router {
     }
 
     const deadlineReached = errors.some(e => e.providerId === '(deadline)');
-    await this.db.logEvent('chat.all_failed', { status: 'error', error: JSON.stringify(errors).slice(0, 500), latencyMs: Date.now() - t0 }).catch(() => {});
+    await this.db.logEvent('chat.all_failed', { status: 'error', error: JSON.stringify(errors).slice(0, 500), latencyMs: Date.now() - t0 }).catch((e) => noteStoreWriteFailure('logEvent', e));
     const noKey = errors.length > 0 && errors.every(e => e.status === 0 || e.status === 401 || e.status === 403);
     const notFound = errors.length > 0 && errors.every(e => e.status === 404 || e.status === 410);
     const quota = errors.length > 0 && errors.every(e => e.status === 429);
+    // كل المحاولات رفضاً من طبقة العميل (400/422): الطلب نفسه غير صالح —
+    // إعادته كـ504 عابرة تُغري بإعادة محاولة لا معنى لها (خلل مثبت: رسائل فارغة
+    // وmax_tokens نصي كانا يعودان 504 «All providers failed»).
+    const clientErr = errors.length > 0 && errors.every(e => e.status === 400 || e.status === 422);
     return {
-      ok: false, status: 504,
+      // رمز صادق: نموذج غير موجود = 404 (كما OpenAI/Anthropic)، طلب غير صالح = 400.
+      ok: false, status: notFound ? 404 : clientErr ? 400 : 504,
       error: deadlineReached
         ? `Request deadline reached (${Math.round(this.deadlineMs / 1000)}s) after trying ${tried.size} providers — increase routing.timeoutMs or fix slow providers`
         : quota
           ? 'All keys are quota-exhausted — add more keys for these providers, or wait for the quota to reset'
           : notFound
             ? `Model "${wantModel}" is not offered by any provider — check the exact id in /v1/models, or use auto`
-            : noKey
-              ? 'No usable provider — add or fix API keys on the Providers tab'
-              : 'All providers failed',
+            : clientErr
+              ? `Request rejected by provider: ${String(errors[0]?.error || '').slice(0, 200)}`
+              : noKey
+                ? 'No usable provider — add or fix API keys on the Providers tab'
+                : 'All providers failed',
       attempts: errors
     };
   }

@@ -1,4 +1,5 @@
 // server/db.ts — SQLite (libsql) events, usage, key health
+import { createHash, randomBytes } from 'node:crypto';
 import { createClient, type Client } from '@libsql/client';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -8,7 +9,9 @@ import {
 } from './crypto.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, '..', 'data', 'gateway.db');
+// مسار القاعدة قابل للتجاوز عبر GATEWAY_DB_PATH — يسمح بتشغيل نسخة معزولة
+// (اختبار/تجربة) بلا لمس قاعدة الاستخدام الحقيقية.
+const DB_PATH = process.env.GATEWAY_DB_PATH || join(__dirname, '..', 'data', 'gateway.db');
 
 /**
  * مصدر المفتاح — يحدد من أي طبقة جاء، وأيها يملك السلطة عند التعارض.
@@ -26,6 +29,49 @@ export const SOURCE_PRIORITY: Record<ProviderKeySource, number> = {
   env: 50,
   manual: 90
 };
+
+const writeFailureLoggedAt = new Map<string, number>();
+
+// ===== مفاتيح العملاء: hash لا نص =====
+// عمود api_keys.key يخزّن الآن **SHA-256** من المفتاح (لا النص). لماذا: تسريب
+// نسخة القاعدة (نسخة احتياطية، مشاركة مجلد، سرقة جهاز) يجب ألّا يسلّم مفاتيح
+// العملاء — مثل مفاتيح أي مزود حقيقي (OpenAI/Anthropic تعرض المفتاح مرة واحدة).
+// key_hint = أول 6 محارف + آخر 4 للعرض فقط. التوليد crypto.randomBytes —
+// Math.random غير صالح لتوليد أسرار (قابل للتوقّع).
+const API_KEY_PREFIX = process.env.API_KEY_PREFIX || 'gw_';
+const BASE62 = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+function sha256Hex(s: string): string {
+  return createHash('sha256').update(s, 'utf8').digest('hex');
+}
+/** بصمة مفتاح عميل — تستخدمها السجلات (usage/events) بدل النص الخام. */
+export function clientKeyHash(raw: string): string {
+  return sha256Hex(raw);
+}
+
+function keyHint(k: string): string {
+  if (!k) return '';
+  if (k.length <= 12) return '••••••';
+  return `${k.slice(0, 6)}…${k.slice(-4)}`;
+}
+
+function isSha256Hex(s: string): boolean {
+  return /^[0-9a-f]{64}$/.test(s);
+}
+
+/**
+ * يُستدعى عند فشل كتابة خلفية للمخزون (حالة مفتاح، حكم فحص...).
+ * لماذا دالة: كانت كلها `.catch(()=>{})` ⇒ فشل القاعدة صامت تماماً — طلبات
+ * تعمل وحالات لا تُحفظ ولا أحد يعلم. الآن تحذير **مخنوق** (مرة/دقيقة لكل
+ * عملية): يُرى في السجل، ولا يُغرق عند عطل مستمر، ولا يكسر الطلب الأصلي.
+ */
+export function noteStoreWriteFailure(op: string, err: unknown): void {
+  const now = Date.now();
+  const last = writeFailureLoggedAt.get(op) || 0;
+  if (now - last < 60_000) return;
+  writeFailureLoggedAt.set(op, now);
+  console.warn(`[provider-keys] ${op} failed:`, (err as any)?.message || err);
+}
 
 export class EventDB {
   private db!: Client;
@@ -114,6 +160,59 @@ export class EventDB {
     )`);
     await this._migrateProbeAuthErrors();
     await this._migrateSecretStorageInternal();
+    await this._migrateApiKeyHashing();
+  }
+
+  /**
+   * ترحيل مفاتيح العملاء إلى تخزين hash (idempotent).
+   * أي صف لا يزال نصاً صريحاً (64 hex لا) يُحوَّل: key = sha256(النص)،
+   * key_hint = بصمة عرض. بعد الترحيل لا يمكن إظهار المفتاح كاملاً —
+   * الأدوات تستخدم النسخة التي حصل عليها عند الإنشاء، وإلا يُعاد توليدها.
+   */
+  private async _migrateApiKeyHashing() {
+    try {
+      await this._ensureColumn('api_keys', 'key_hint', `ALTER TABLE api_keys ADD COLUMN key_hint TEXT`);
+      const rows = await this.db.execute(`SELECT id, key FROM api_keys`);
+      let moved = 0;
+      for (const row of rows.rows as any[]) {
+        const plain = String(row.key ?? '');
+        if (!plain || isSha256Hex(plain)) continue; // مُهجَّر سابقاً أو فارغ
+        await this.db.execute({
+          sql: `UPDATE api_keys SET key = ?, key_hint = ? WHERE id = ?`,
+          args: [sha256Hex(plain), keyHint(plain), Number(row.id)]
+        });
+        moved++;
+      }
+      if (moved > 0) {
+        console.log(`🔐 ترحيل مفاتيح العملاء: حُوِّل ${moved} مفتاحاً إلى تخزين hash (النص الصريح لم يعد في القاعدة)`);
+      }
+      await this._migrateLogKeyIds();
+    } catch (e: any) {
+      console.warn('⚠ فشل ترحيل hash مفاتيح العملاء:', e?.message || e);
+    }
+  }
+
+  /**
+   * السجلات (usage/events) كانت تخزن **النص الخام** لمفتاح العميل في key_id —
+   * ناقل تسريب عبر /api/logs، وربط إحصاءات المفتاح يُكسر بعد ترحيل api_keys
+   * إلى hash. نحوّل كل قيمة ليست hash إلى hash (idempotent).
+   */
+  private async _migrateLogKeyIds() {
+    for (const table of ['usage', 'events']) {
+      try {
+        const rows = await this.db.execute(`SELECT DISTINCT key_id FROM ${table} WHERE key_id IS NOT NULL AND key_id != ''`);
+        for (const row of rows.rows as any[]) {
+          const raw = String(row.key_id ?? '');
+          if (!raw || isSha256Hex(raw)) continue;
+          await this.db.execute({
+            sql: `UPDATE ${table} SET key_id = ? WHERE key_id = ?`,
+            args: [sha256Hex(raw), raw]
+          });
+        }
+      } catch (e: any) {
+        console.warn(`⚠ تعذّر ترحيل key_id في ${table}:`, e?.message || e);
+      }
+    }
   }
 
   /** يضيف عموداً إن لم يكن موجوداً (idempotent) — أساس كل ترقية لاحقة. */
@@ -231,16 +330,32 @@ export class EventDB {
     return this._migrateSecretStorageInternal();
   }
 
+  /** يولّد مفتاح عميل جديداً: بادئة + 40 محرفاً من randomBytes (ليس Math.random). */
+  private generateClientKey(): string {
+    return API_KEY_PREFIX + Array.from(randomBytes(40), b => BASE62[b % BASE62.length]).join('');
+  }
+
+  /**
+   * ينشئ مفتاح عميل ويعيد النص الكامل **مرة واحدة** — بعدها لا يُسترجع من
+   * القاعدة (تُخزَّن بصمته فقط). الواجهة تعرضه لحظة الإنشاء مع زر نسخ.
+   */
   async createApiKey(name: string): Promise<{ key: string; name: string; id: number }> {
     await this.ready;
-    const key = 'gw_' + Array.from({ length: 40 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
-    const r = await this.db.execute({ sql: `INSERT INTO api_keys (key, name, ts) VALUES (?, ?, ?) RETURNING id`, args: [key, name, Date.now()] });
+    const key = this.generateClientKey();
+    const r = await this.db.execute({
+      sql: `INSERT INTO api_keys (key, key_hint, name, ts) VALUES (?, ?, ?, ?) RETURNING id`,
+      args: [sha256Hex(key), keyHint(key), name, Date.now()]
+    });
     return { key, name, id: Number((r.rows[0] as any)?.id) };
   }
 
+  /** القائمة تعيد البصمة (key_hint) — لا يوجد نص كامل ليعود من القاعدة. */
   async listApiKeys() {
     await this.ready;
-    const r = await this.db.execute({ sql: `SELECT id, key, name, ts, last_used, requests FROM api_keys ORDER BY ts DESC`, args: [] });
+    const r = await this.db.execute({
+      sql: `SELECT id, COALESCE(key_hint, '••••••') AS key, name, ts, last_used, requests FROM api_keys ORDER BY ts DESC`,
+      args: []
+    });
     return r.rows;
   }
 
@@ -249,12 +364,45 @@ export class EventDB {
     await this.db.execute({ sql: `DELETE FROM api_keys WHERE id = ?`, args: [id] });
   }
 
+  // ===== عدّ استخدام مفاتيح العملاء (دفعي) =====
+  // كان كل طلب /v1 يكتب UPDATE على api_keys — كتابة قاعدة لكل طلب تُثقل SQLite
+  // تحت الحمل. الآن يُجمَّع العدّ في الذاكرة ويُكتب كل 5 ثوانٍ (نفس نمط deferTouch).
+  private pendingApiTouches = new Map<number, number>();
+  private apiTouchTimer: any = null;
+
+  private deferApiTouch(id: number): void {
+    this.pendingApiTouches.set(id, (this.pendingApiTouches.get(id) || 0) + 1);
+    if (this.apiTouchTimer) return;
+    this.apiTouchTimer = setTimeout(() => { this.apiTouchTimer = null; void this.flushApiTouches(); }, 5000);
+    if (typeof this.apiTouchTimer?.unref === 'function') this.apiTouchTimer.unref();
+  }
+
+  /** يكتب عدّادات الاستخدام المعلّقة. عامة للاختبار وللإغلاق النظيف. */
+  async flushApiTouches(): Promise<number> {
+    if (!this.pendingApiTouches.size) return 0;
+    const batch = [...this.pendingApiTouches.entries()];
+    this.pendingApiTouches.clear();
+    for (const [id, n] of batch) {
+      try {
+        await this.db.execute({
+          sql: `UPDATE api_keys SET requests = requests + ?, last_used = ? WHERE id = ?`,
+          args: [n, Date.now(), id]
+        });
+      } catch (e) {
+        noteStoreWriteFailure('apiTouch', e);
+      }
+    }
+    return batch.length;
+  }
+
   async checkApiKey(rawKey: string): Promise<boolean> {
     if (!rawKey) return false;
     await this.ready;
-    const r = await this.db.execute({ sql: `SELECT id FROM api_keys WHERE key = ?`, args: [rawKey] });
+    // البحث بالبصمة — القاعدة لا تحتفظ بالنص الأصلي إطلاقاً
+    const r = await this.db.execute({ sql: `SELECT id FROM api_keys WHERE key = ?`, args: [sha256Hex(rawKey)] });
     if (r.rows.length === 0) return false;
-    await this.db.execute({ sql: `UPDATE api_keys SET last_used = ?, requests = requests + 1 WHERE key = ?`, args: [Date.now(), rawKey] });
+    const id = Number((r.rows[0] as any).id);
+    this.deferApiTouch(id);
     return true;
   }
 
@@ -291,12 +439,14 @@ export class EventDB {
    * لماذا: أحداث الصحة والفحص تكتب `status='ok'` لا `'success'` ⇒ الإحصاء القديم
    * كان يحسبها «لا نجاح ولا فشل» ويضخّم المقام ⇒ نسبة النجاح في اللوحة خاطئة.
    * كما أن مزج فحص الصحة بنسبة نجاح الطلبات مخطأ دلالياً.
+   * S10: ورد الكاش (200) كان يسقط من البسط ويبقى في المقام ⇒ معدل نجاح أقل من
+   * الحقيقة. الرد المخزَّن ردٌّ ناجح، فيُحسب نجاحاً.
    */
   async getStats(sinceMs: number) {
     await this.ready;
     const r = await this.db.execute({
       sql: `SELECT COUNT(*) as total,
-                   SUM(CASE WHEN type = 'chat.success' THEN 1 ELSE 0 END) as success,
+                   SUM(CASE WHEN type IN ('chat.success','chat.cache_hit') THEN 1 ELSE 0 END) as success,
                    SUM(CASE WHEN type IN ('chat.error','chat.all_failed','chat.stream_error') THEN 1 ELSE 0 END) as error
             FROM events WHERE ts > ? AND type LIKE 'chat%'`,
       args: [sinceMs]
@@ -309,12 +459,16 @@ export class EventDB {
    * لماذا: `health.ok` كل 60ث × 15 مزوّداً ≈ 21,600 صف/يوم بلا سقف ⇒ القاعدة تنمو
    * بلا حدّ. سياسة الاحتفاظ مكتوبة في هذا الملف وحده (لا أحد يخمّن مدة أخرى).
    */
-  async prune(opts: { eventsDays?: number; usageDays?: number; rotationsKeep?: number } = {}) {
+  async prune(opts: { eventsDays?: number; usageDays?: number; rotationsKeep?: number; probesDays?: number } = {}) {
     await this.ready;
     const now = Date.now();
     const eventsDays = Math.max(1, Number(opts.eventsDays) || 30);
     const usageDays = Math.max(1, Number(opts.usageDays) || 90);
     const rotationsKeep = Math.max(100, Number(opts.rotationsKeep) || 5000);
+    // صفوف الفحص كانت لا تُنظَّف أبداً: صف نموذج/مزود محذوف يبقى للأبد ويغذي
+    // «نماذج المزود» بنتيجة عمرها شهور (خلل مثبت بالقراءة). نتائج أقدم من أسبوع
+    // بلا قيمة — كل الأحكام لها TTL أقصر من ذلك في التوجيه والفحص.
+    const probesDays = Math.max(1, Number(opts.probesDays) || 7);
     const count = (r: any) => Number(r?.rowsAffected || 0);
 
     const events = count(await this.db.execute({ sql: `DELETE FROM events WHERE ts < ?`, args: [now - eventsDays * 86400000] }));
@@ -323,7 +477,8 @@ export class EventDB {
       sql: `DELETE FROM key_rotations WHERE id NOT IN (SELECT id FROM key_rotations ORDER BY id DESC LIMIT ?)`,
       args: [rotationsKeep]
     }));
-    return { events, usage, rotations };
+    const probes = count(await this.db.execute({ sql: `DELETE FROM model_probe WHERE checked_at < ?`, args: [now - probesDays * 86400000] }));
+    return { events, usage, rotations, probes };
   }
 
   async getUsageByProvider(sinceMs: number) {
@@ -471,11 +626,16 @@ export class EventDB {
     await this.db.execute({ sql: `DELETE FROM provider_keys WHERE id = ?`, args: [id] });
   }
 
-  async touchProviderKey(id: number) {
+  /**
+   * عدّاد استخدام المفتاح. يقبل دفعة (count): الموجّه يجمّع العدّ كل 5 ثوانٍ
+   * ويكتب مرة واحدة، بدل كتابة قاعدة لكل طلب ناجح.
+   */
+  async touchProviderKey(id: number, count = 1) {
+    const n = Math.max(1, Math.floor(Number(count) || 1));
     await this.ready;
     await this.db.execute({
-      sql: `UPDATE provider_keys SET requests = requests + 1, last_used = ? WHERE id = ?`,
-      args: [Date.now(), id]
+      sql: `UPDATE provider_keys SET requests = requests + ?, last_used = ? WHERE id = ?`,
+      args: [n, Date.now(), id]
     });
   }
 

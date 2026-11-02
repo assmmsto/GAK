@@ -145,6 +145,28 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
     setTesting(true);
     setTestResult(null);
     try {
+      if (isEdit) {
+        // S13: نداء دفعي واحد بدل طلب لكل نموذج. كان مزود بـ100+ نموذج يتجاوز
+        // حد المعدل (60/دقيقة) فيُوسم «فشل» وهو لم يُفحص أصلاً.
+        const r = await api.probeAll(editTarget!.id, Math.min(availableModels.length, 200));
+        const byModel = new Map((r.results || []).map(x => [x.model, x]));
+        setAvailableModels(prev => prev.map(p => {
+          const hit = byModel.get(p.id);
+          if (!hit) return p;
+          return {
+            ...p,
+            // rate_limited ليست حكماً على النموذج — تُعاد إلى «لم يُفحص»
+            status: hit.status === 'ok' ? 'ok' : hit.status === 'rate_limited' ? undefined : 'rejected',
+            latencyMs: hit.latencyMs, error: hit.error
+          };
+        }));
+        const okCount = (r.results || []).filter(x => x.status === 'ok').length;
+        setTestResult({
+          ok: okCount > 0, latencyMs: 0,
+          error: okCount === 0 ? 'لم ينجح أي نموذج في الفحص' : undefined
+        });
+        return;
+      }
       const BATCH = 5;
       const results: { id: string; status?: string; latencyMs?: number; error?: string }[] = [];
       for (let i = 0; i < availableModels.length; i += BATCH) {
@@ -152,25 +174,19 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
         const batch = await Promise.all(
           slice.map(async (m) => {
                   try {
-                    if (!isEdit) {
-                      // في وضع الإضافة نستخدم baseUrl و apiKey مباشرةً
-                      const res = await api.probeConnect(baseUrl, apiKey || undefined, m.id);
-                      return {
-                        id: m.id,
-                        status: res.status,
-                        latencyMs: res.latencyMs,
-                        error: res.error
-                      };
-                    }
-                    const res = await api.probeOne(editTarget!.id, m.id);
+                    // وضع التحرير عالجه نداء دفعي واحد أعلاه؛ ما تبقّى هو وضع الإضافة:
+                    // نفحص عبر baseUrl و apiKey مباشرةً بلا مزود محفوظ بعد.
+                    const res = await api.probeConnect(baseUrl, apiKey || undefined, m.id);
                     return {
                       id: m.id,
-                      status: res.status === 'ok' ? 'ok' : 'rejected',
+                      status: res.status,
                       latencyMs: res.latencyMs,
                       error: res.error
                     };
                   } catch (e: any) {
-                    return { id: m.id, status: 'rejected', error: e.message };
+                    // S13: تجاوز حد المعدل ليس حكماً على النموذج ⇒ «لم يُفحص» لا «فشل»
+                    const limited = /429|rate limit|تجاوزت حد/i.test(String(e?.message || ''));
+                    return { id: m.id, status: limited ? undefined : 'rejected', error: e.message };
                   }
                 })
         );
@@ -242,17 +258,11 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
     }
   };
 
-  const toggleModel = (m: string) => {
-    const next = new Set(selectedModels);
-    if (next.has(m)) next.delete(m); else next.add(m);
-    setSelectedModels(next);
-  };
-  void toggleModel; // مُبقاة لواجهة اختيار النماذج — تُستخدم عند تفعيل القائمة اليدوية
-
   // الاسم الحقيقي لمتغيّر البيئة: نأخذه من المزود الموجود (apiKeyEnv) وإلا نشتقّه من المعرّف.
   // بدون هذا كان التلميح يعرض اسماً مختلفاً عن الذي يكتبه الخادم فعلاً (مثال: google-ai → GEMINI_API_KEY)
   const existingProvider = (existingData?.providers || []).find(p => p.id === id);
   const envVarName = existingProvider?.apiKeyEnv
+    || catalogData?.providers?.find(p => p.id === id)?.apiKeyEnv
     || (id.toUpperCase().replace(/[^A-Z0-9]/g, '_') + '_API_KEY');
   const okModelsCount = availableModels.filter(m => m.status === 'ok').length;
   const saveLabel = okModelsCount > 0
@@ -276,7 +286,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
               {step === 'form' ? 'Configure connection details' : 'Choose which models to expose'}
             </p>
           </div>
-          <button onClick={close} className="btn-ghost btn btn-sm p-1.5 text-ink-muted hover:text-ink">
+          <button onClick={close} aria-label="إغلاق" className="btn-ghost btn btn-sm p-1.5 text-ink-muted hover:text-ink">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -396,7 +406,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
                   onChange={e => setApiKey(e.target.value)}
                   placeholder={isEdit ? "••••••••" : "sk-..."}
                 />
-                {isEdit && editTarget!.hasKey && apiKey && (
+                {isEdit && editTarget!.hasKey && (
                   <button
                     type="button"
                     onClick={() => setApiKey('__clear__')}
@@ -415,7 +425,7 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
               {apiKey && apiKey !== '__clear__' && id && (
                 <div className="text-[11px] text-ink-dim mt-1.5 flex items-center gap-1.5">
                   <Check className="w-3 h-3 text-ok" />
-                  Will be stored in <code className="bg-surface-2 px-1.5 py-0.5 rounded text-primary-2">.env</code> as <code className="bg-surface-2 px-1.5 py-0.5 rounded text-primary-2">{envVarName}</code>
+                  يُخزَّن مشفّراً في <code className="bg-surface-2 px-1.5 py-0.5 rounded text-primary-2">data/gateway.db</code> — متغيّر البيئة: <code className="bg-surface-2 px-1.5 py-0.5 rounded text-primary-2">{envVarName}</code>
                 </div>
               )}
             </div>
@@ -494,9 +504,10 @@ export function AddProviderModal({ open, onClose, onAdded, editTarget }: Props) 
                 >
                   <input
                     type="checkbox" checked={m.status === 'ok'}
-                    disabled={m.status === undefined}
-                    onChange={() => { /* auto-managed by test result */ }}
-                    className="accent-primary w-3.5 h-3.5"
+                    disabled
+                    readOnly
+                    title="يُدار تلقائياً من نتيجة الفحص — النموذج الذي يرد فعلاً يُختار للحفظ"
+                    className="accent-primary w-3.5 h-3.5 opacity-80"
                   />
                   <span className="font-mono text-xs truncate flex-1">{m.id}</span>
                   {m.latencyMs !== undefined && (

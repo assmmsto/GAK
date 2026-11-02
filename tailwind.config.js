@@ -18,6 +18,8 @@ export default {
         ok: "#4fae7d",
         warn: "#c79545",
         bad: "#c96a6a",
+        // مرادف surface-2 — كان مستخدماً في HealthTab بلا تعريف، فخلفياته لا تُرسم.
+        panel: "#1a1d26",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

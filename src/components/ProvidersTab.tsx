@@ -36,10 +36,12 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
   };
 
   const remove = async (id: string) => {
-    if (!confirm(`Delete "${id}"?\n\nThis removes it from providers.yaml and .env.`)) return;
+    // S12: الرسالة كانت تقول إن المفاتيح تُحذف بينما هي تبقى في القاعدة (بلا حذف).
+    // الآن تقول الحقيقة: الحذف النهائي للمفاتيح يتطلّب طلباً صريحاً `?purgeKeys=1`.
+    if (!confirm(`Delete "${id}"?\n\nيُحذف من providers.yaml ويُفرَّغ سطر متغيّر البيئة.\nمفاتيحه تبقى محفوظة في قاعدة البيانات (تُستعاد لو أعدت إضافة المزوّد).`)) return;
     try {
       await api.deleteProvider(id);
-      onToast(`Deleted ${id}`, 'success');
+      onToast(`Deleted ${id} — المفاتيح باقية في القاعدة`, 'success');
       qc.invalidateQueries({ queryKey: ['providers'] });
     } catch (e: any) { onToast(e.message, 'error'); }
   };

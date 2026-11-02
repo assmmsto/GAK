@@ -90,6 +90,12 @@ console.log('');
 // ============================================================
 console.log('--- 1) نافذة إضافة مزود: اتصال + جلب نماذج + حفظ ---');
 {
+  // العُدّة: لوحة الوصفات تُخفي المزود الموجود أصلاً، فيمر هذا الاختبار بمسار
+  // «الإضافة الحقيقية» وحين يكون google-ai غائباً. نحذفه ونُعيده تلقائياً لو انهار.
+  const gBefore = (await jget('/api/providers')).providers.find((p: any) => p.id === 'google-ai');
+  if (gBefore) await realFetch(API + '/api/providers/google-ai?purgeKeys=1', { method: 'DELETE' });
+
+  try {
   let added = 0, closed = 0;
   const container = w.document.createElement('div');
   w.document.body.appendChild(container);
@@ -117,9 +123,9 @@ console.log('--- 1) نافذة إضافة مزود: اتصال + جلب نماذ
   // إدخال المفتاح الحقيقي
   await act(async () => { setVal(ins[3], GKEY); });
   await act(async () => { await sleep(150); });
-  const hintIdx = (container.textContent || '').indexOf('Will be stored');
-  const hintText = hintIdx >= 0 ? (container.textContent || '').slice(hintIdx, hintIdx + 70) : 'التلميح غير موجود في DOM';
-  check('تلميح متغيّر البيئة يعرض الاسم الصحيح (GEMINI_API_KEY)', hintText.includes('GEMINI_API_KEY'), 'النص الفعلي: ' + hintText);
+  // التلميح (نص عربي في الواجهة): يعرض اسم متغيّر البيئة الحقيقي من الكتالوج
+  const tNow = container.textContent || '';
+  check('تلميح متغيّر البيئة يعرض الاسم الصحيح (GEMINI_API_KEY)', tNow.includes('GEMINI_API_KEY'), tNow.slice(0, 80));
 
   // اختبار الاتصال (شبكة حقيقية)
   const testBtn: any = btn(container, 'Test');
@@ -148,8 +154,14 @@ console.log('--- 1) نافذة إضافة مزود: اتصال + جلب نماذ
   check('الحفظ أغلق النافذة', closed >= 1, 'closed=' + closed);
   check('onAdded نُفِّذ', added >= 1);
 
-  const envAfter = fs.readFileSync('.env', 'utf8');
-  check('المفتاح محفوظ في .env', envAfter.includes('GEMINI_API_KEY=' + GKEY));
+  // S14: المفاتيح تُخزَّن مشفّرة في قاعدة البيانات لا في .env. الفحص القديم
+  // (envAfter.includes('GEMINI_API_KEY=' + GKEY)) كان ينجح **زوراً** لأن المفتاح
+  // موجود في .env سلفاً ⇒ «دليل نجاح» لا يعني أن الحفظ عمل.
+  const keyList = await jget('/api/providers/google-ai/keys');
+  check('المفتاح محفوظ في قاعدة البيانات (summary.total > 0)',
+    Number(keyList?.summary?.total || 0) > 0, 'summary=' + JSON.stringify(keyList?.summary || {}));
+  check('المفتاح يُعاد مقنّعاً لا كاملاً',
+    String(keyList?.keys?.[0]?.masked || '').includes('…'), 'masked=' + String(keyList?.keys?.[0]?.masked || ''));
   const gp = yamlProviders().find(p => p.id === 'google-ai')!;
   check('المزود مفعّل في YAML', gp.enabled === true);
   check('المفتاح ليس نصاً في YAML', gp.hasPlainKey === false);
@@ -158,6 +170,18 @@ console.log('--- 1) نافذة إضافة مزود: اتصال + جلب نماذ
   check('المزود يظهر بمفتاح في الذاكرة', gprov?.hasKey === true && gprov?.enabled === true);
   check('الرابط الصحيح محفوظ', gprov?.baseUrl === 'https://generativelanguage.googleapis.com/v1beta/openai', gprov?.baseUrl);
   await act(async () => { root.unmount(); });
+
+  // قاطع العُدّة: لو انهار المسار الحقيقي قبل الحفظ، يُعاد google-ai بمواصفاته ومفتاحه
+  } finally {
+    const now = (await jget('/api/providers')).providers;
+    if (gBefore && !now.find((p: any) => p.id === 'google-ai')) {
+      await realFetch(API + '/api/providers/add', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'google-ai', name: 'Google AI Studio', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', tier: 3, models: 'auto', apiKey: GKEY })
+      });
+      console.log('  [*] أُعيد google-ai بعد انهيار العُدّة');
+    }
+  }
 }
 
 // ============================================================
@@ -244,7 +268,14 @@ console.log('\n--- 4) Playground: محادثة حقيقية ---');
   const opts = [...(sel?.querySelectorAll('option') || [])].map((o: any) => o.value);
   check('خيار auto موجود', opts.includes('auto'));
   check('قائمة النماذج مملوءة فعلاً (>50 خيار)', opts.length > 50, 'عدد الخيارات=' + opts.length);
-  const gopt = opts.find((o: string) => o.startsWith('google-ai/'));
+  // القائمة تُبنى من ذاكرة تتحدد بعد إعادة إنشاء المزود (قسم 1) — ننتظر دورة التحديث
+  // (refetch كل 10 ثوانٍ في مكوّن Playground) بدل قراءة واحدة قديمة
+  let gopt: string | undefined;
+  for (let i = 0; i < 10 && !gopt; i++) {
+    await act(async () => { await sleep(2500); });
+    const selNow: any = container.querySelector('select');
+    gopt = [...(selNow?.querySelectorAll('option') || [])].map((o: any) => o.value).find((v: string) => v.startsWith('google-ai/'));
+  }
   check('نماذج google-ai ظاهرة في القائمة', !!gopt, 'أول 5: ' + opts.slice(0, 5).join(', '));
   notes.push('نموذج مستخدم للاختبار: ' + (gopt || 'auto'));
 

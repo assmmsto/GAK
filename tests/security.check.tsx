@@ -123,10 +123,20 @@ check('لا رابط مكرر بين مزودين', dupUrls.length === 0, dupUrl
 const badIds = providers.filter(p => !/^[a-z0-9-]{2,32}$/.test(String(p.id || '')));
 check('كل المعرّفات صالحة', badIds.length === 0, badIds.map(p => p.id).join(','));
 
-// تثبيت انحدار: الروابط التي أُصلحت لا تعود للخطأ
-check('together يستخدم api.together.ai', providers.find(p => p.id === 'together')?.baseUrl === 'https://api.together.ai/v1');
-check('catalog.together يستخدم api.together.ai', catalog.find(p => p.id === 'together')?.baseUrl === 'https://api.together.ai/v1');
-check('chutes يستخدم llm.chutes.ai', providers.find(p => p.id === 'chutes')?.baseUrl === 'https://llm.chutes.ai/v1');
+// تثبيت انحدار: الروابط التي أُصلحت لا تعود للخطأ — شرطي على وجود المزود:
+// providers.yaml قابل للتهيئة (يمكن حذف مزودات)، فالتحقق من غيابها ليس فشلاً.
+// القاعدة: إن وُجد المزود وجب أن يكون على نطاقه الرسمي؛ وإن غاب فلا شيء لنُثبّته.
+const pinTogether = (list: any[]) => {
+  const p = list.find(x => x.id === 'together');
+  return !p || p.baseUrl === 'https://api.together.ai/v1';
+};
+const pinChutes = (list: any[]) => {
+  const p = list.find(x => x.id === 'chutes');
+  return !p || p.baseUrl === 'https://llm.chutes.ai/v1';
+};
+check('together (إن وُجد) يستخدم api.together.ai', pinTogether(providers as any[]));
+check('catalog.together (إن وُجد) يستخدم api.together.ai', pinTogether(catalog as any[]));
+check('chutes (إن وُجد) يستخدم llm.chutes.ai', pinChutes(providers as any[]));
 
 // Quick Presets في الواجهة لا تتفرّع عن الكتالوج
 const modalSrc = read('src/components/AddProviderModal.tsx');

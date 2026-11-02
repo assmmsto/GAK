@@ -78,12 +78,12 @@ export function LogsTab() {
             const isSuccess = e.status === 'success' || e.type?.includes('ok') || e.type?.includes('added');
             const isError = e.status === 'error' || e.type?.includes('fail') || e.type?.includes('removed');
             const klass = isSuccess
-              ? 'border-l-success bg-ok/5'
+              ? 'border-l-ok bg-ok/5'
               : isError
-                ? 'border-l-error bg-bad/5'
+                ? 'border-l-bad bg-bad/5'
                 : e.type?.includes('health')
                   ? 'border-l-primary-2 bg-primary-2/5'
-                  : 'border-l-warning bg-warn/5';
+                  : 'border-l-warn bg-warn/5';
             const time = new Date(e.ts).toLocaleTimeString();
             const detail = [e.provider, e.model, e.latency_ms != null ? `${e.latency_ms}ms` : null]
               .filter(Boolean).join(' · ');

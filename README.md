@@ -23,7 +23,7 @@ Unified multi-provider AI gateway with real-time web dashboard, streaming chat, 
 
 ```bash
 # 1. Install
-cd E:/ai-gateway-web
+cd ai-gateway-web-v2
 npm install
 
 # 2. Add API keys (optional — gateway works with keyless providers too)
@@ -50,7 +50,11 @@ Everything below is optional — the gateway runs with defaults.
 | `PORT` | `3001` | API server port |
 | `HOST` | `127.0.0.1` | Bind address. Set `0.0.0.0` to expose on the network |
 | `CORS_ORIGINS` | local dev origins | Comma-separated list of allowed origins |
-| `ADMIN_TOKEN` | *(empty)* | If set, every `/api/*` route requires it (`X-Admin-Token` header) |
+| `ADMIN_TOKEN` | *(empty)* | If set, every `/api/*` route requires it. Exchanged once for an **HttpOnly cookie** via `POST /api/auth` (tools may also send `X-Admin-Token`) |
+| `TRUST_PROXY` | *(empty)* | Set `1` when behind nginx/caddy so rate limits key on the real client IP |
+| `ALLOW_UNAUTHENTICATED_API` | *(empty)* | Set `1` only if your reverse proxy already authenticates the dashboard — otherwise a proxied deployment without `ADMIN_TOKEN` keeps `/api` closed (503) |
+| `WS_MAX_CLIENTS` | `50` | Max concurrent dashboard WebSocket connections |
+| `API_KEY_PREFIX` | `gw_` | Prefix for generated client keys |
 
 ### Where provider API keys actually live
 
@@ -68,8 +72,21 @@ A `<PROVIDER>_API_KEY` variable is still read **once at first boot** as a conven
 has no keys in the database yet, its env var is imported and then lives in the database. After that
 the database wins, and editing a key in the dashboard writes to the database — never back to `.env`.
 
-If you set `ADMIN_TOKEN`, open the dashboard once with `?token=YOUR_TOKEN` — it stores the token
-locally and sends it with every request afterwards.
+Only env names that map to a **known provider** (the catalog or `providers.yaml`) are imported.
+Anything else ending in `_API_KEY` is reported and ignored, so an unrelated variable can never
+become a phantom provider key.
+
+If you set `ADMIN_TOKEN`, open the dashboard once with `?token=YOUR_TOKEN` — the server
+exchanges it for an **HttpOnly cookie** (unreachable from page scripts, hardened against
+XSS token theft) and the token never lands in `localStorage`. Tools and scripts can
+authenticate with the `X-Admin-Token` header as before.
+
+### Client keys are hashed, shown once
+
+Gateway keys (the ones your tools use) are generated with `crypto.randomBytes` and stored
+**only as a SHA-256 hash** in the database — a leaked `gateway.db` backup does not leak
+your client keys. The full value is displayed exactly once, at creation/regeneration;
+afterwards the dashboard shows a fingerprint (`gw_ab…wxyz`). Regenerate to rotate.
 
 > **Exposing on your network** — if you set `HOST=0.0.0.0` the server warns loudly and refuses to
 > start unless `ADMIN_TOKEN` is set. Without it, any device on the same Wi-Fi can read your keys and
@@ -79,7 +96,7 @@ locally and sends it with every request afterwards.
 
 | Tab | What it is for |
 |---|---|
-| **Providers** | Add, edit, enable/disable and test providers. API keys are written to `.env` for you. |
+| **Providers** | Add, edit, enable/disable and test providers. API keys are written **encrypted to the database** (`data/gateway.db`). |
 | **Model sort** | The single question: *which models actually work?* Sends a real chat call to each model, lists them in one flat filterable table, and automatically blocks the dead ones from routing. |
 | **Usage** | Token consumption per provider (last 24h). |
 | **Logs** | Live event stream (chat, health, provider changes). |
@@ -92,8 +109,21 @@ never retried until you re-probe it or clear the results.
 ## Testing
 
 ```bash
-npm run test:ui     # needs the server running (npm run dev)
+npm test             # offline guards: security, crypto, modules, agents, routing, web
+npm run test:ui      # jsdom UI e2e (needs the server running: npm run dev)
+npm run test:api     # full API battery (every route + negative cases + WebSocket)
+npm run test:tasks   # browser tasks: full user journeys (isolated instance)
+npm run test:browser # full browser battery (all tabs/buttons; destructive — use an isolated instance)
+npm run test:browser:safe  # same battery, read-only (BASE=http://127.0.0.1:3001)
+npm run test:live    # live security checks against GATEWAY_URL
+npm run test:prod    # full production e2e (real provider call, needs a key in .env)
+npm run test:console # React/console warnings per component (needs the server)
+npm run test:decrypt # verifies stored keys decrypt with the local credential key
 ```
+
+> **Browser/API batteries with a real provider** — the live-chat and probe checks read test keys
+> from `data/.testkeys.json` (`{"dahl": ["…"]}`, gitignored — never commit real keys). Without it,
+> those checks are skipped honestly and everything else still runs.
 
 `tests/ui.e2e.tsx` renders the real components in jsdom and drives them against the live API — it
 covers the add/edit provider modal (save, prefill, error surfacing) and the Model sort tab
@@ -167,7 +197,7 @@ claude -p "your task"
 | POST | `/api/providers/add` | Add a provider (its key is stored in the database) |
 | PATCH | `/api/providers/:id` | Edit name/url/tier/models/key (`apiKey: "__clear__"` removes all keys) |
 | POST | `/api/providers/:id/toggle` | Enable/disable a provider (persisted to YAML) |
-| DELETE | `/api/providers/:id` | Remove the provider and its key from `.env` |
+| DELETE | `/api/providers/:id` | Remove the provider (its DB keys are kept; `?purgeKeys=1` deletes them too) |
 | GET | `/api/providers/:id/keys` | List that provider's keys (masked) + summary |
 | POST | `/api/providers/:id/keys` | Add one or many keys `{"keys":["…","…"]}` |
 | PATCH | `/api/providers/:id/keys/:keyId` | Rename · disable · replace value · `{"reactivate":true}` |
@@ -182,7 +212,7 @@ claude -p "your task"
 | POST | `/api/probe/retry-rejected` | Re-probe only previously rejected models |
 | DELETE | `/api/probe/results` | Clear probe results and unblock rejected models |
 | GET | `/api/usage` | Token usage per provider (last 24h) |
-| GET/POST/DELETE | `/api/keys…` | Gateway key management |
+| GET/POST/DELETE | `/api/keys…` | Client key management (list = fingerprints; create/regenerate returns the full value **once**) |
 
 ## Multiple keys per provider
 

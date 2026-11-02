@@ -19,6 +19,13 @@ const STATUS_META: Record<ProbeStatus, { label: string; hint: string; badge: str
   no_key:        { label: 'بلا مفتاح', hint: 'المزود بلا مفتاح — لن يُجرَّب حتى تضيف مفتاحاً',   badge: 'badge',         border: 'border-l-line', icon: KeyRound },
 };
 
+// احتياطي **محايد**: أي حالة جديدة من الخادم لا تُلوَّن «مرفوضة» بالأحمر.
+// (كان `|| STATUS_META.rejected` يجعل حالة غير معروفة تبدو كنموذج ميت محجوب.)
+const UNKNOWN_META = {
+  label: 'غير معروفة', hint: 'حالة لم تعرفها الواجهة بعد — راجع السجل',
+  badge: 'badge', border: 'border-l-line', icon: Clock
+};
+
 // الترتيب الافتراضي: ما يحتاج تدخّلاً أولاً
 const SEVERITY: ProbeStatus[] = ['provider_auth', 'rejected', 'rate_limited', 'slow', 'ok', 'no_key'];
 const rank = (s: ProbeStatus) => SEVERITY.indexOf(s);
@@ -34,6 +41,12 @@ function fmtAgo(ts: number): string {
   if (s < 86400) return `${Math.round(s / 3600)}س`;
   return `${Math.round(s / 86400)}ي`;
 }
+
+// صدق البيانات: نتيجة "ok" أقدم من يوم لم يُتحقق منها — تعرض القديم كأنه حال.
+// الخادم يعيد فحصها تلقائياً (OK_STALE_MS في probe.ts)؛ هنا نكشف عمرها للمستخدم
+// حتى لا يختار نموذجاً "يعمل" منذ أسابيع ثم تفشل محادثته (خلل مُثبَت).
+const STALE_OK_MS = 24 * 60 * 60 * 1000;
+const isStaleOk = (r: ProbeRow) => r.status === 'ok' && r.checked_at > 0 && (Date.now() - r.checked_at) > STALE_OK_MS;
 
 type SortBy = 'severity' | 'provider' | 'model' | 'latency';
 type KpiKey = 'ok' | 'provider_auth' | 'rejected' | 'warn' | 'no_key';
@@ -66,6 +79,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
   const n = (k: ProbeStatus) => Number(summary[k] || 0);
   const totalProbed = probesData?.total ?? probes.length;
   const rejectedCount = n('rejected');
+  const staleOkCount = probes.filter(isStaleOk).length;
 
   // تغطية كل مزود
   const coverage = useMemo(() => {
@@ -168,7 +182,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
   }
 
   const kpis: Array<{ key: KpiKey; value: number; label: string }> = [
-    { key: 'ok', value: n('ok'), label: 'يعمل' },
+    { key: 'ok', value: n('ok'), label: staleOkCount > 0 ? `يعمل · ${staleOkCount} قديم` : 'يعمل' },
     { key: 'provider_auth', value: n('provider_auth'), label: 'مفتاح خاطئ' },
     { key: 'rejected', value: rejectedCount, label: 'مرفوض (محجوب)' },
     { key: 'warn', value: n('rate_limited') + n('slow'), label: 'حصة فارغة / بطيء' },
@@ -203,6 +217,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
           <li>الذي يرد نصاً → <b className="text-ok">يعمل</b> ويُدمج في القائمة الموحّدة.</li>
           <li>الذي يفشل (غير موجود / مفتاح خاطئ / لا يدعم المحادثة) → <b className="text-bad">مرفوض</b> ويُحجب من التوجيه.</li>
           <li>نفاد الحصة أو الخطأ المؤقت → <b className="text-warn">حصة فارغة/بطيء</b> ويُعاد فحصه تلقائياً كل ساعة.</li>
+          <li>كل حكم له صلاحية: «يعمل» أقدم من <b>24 ساعة</b> يُعاد فحصه تلقائياً — فلا تبقى النتائج القديمة تكذب عليك.</li>
         </ol>
       )}
 
@@ -226,8 +241,14 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
         <button
           className="btn btn-sm btn-primary"
           disabled={busy || enabledProviders.length === 0}
-          onClick={() => probeAllMut.mutate(enabledProviders)}
-          title="يفحص نماذج كل مزود مفعّل ويملك مفتاحاً"
+          onClick={() => {
+            // كل فحص = طلب محادثة حقيقي لكل نموذج → نُخبر بالحجم المتوقع قبل الاستهلاك
+            const est = enabledProviders.filter(p => p.hasKey || p.keyless).length * cap;
+            if (confirm(`سيُفحص حتى ${est} نموذجاً بطلب محادثة حقيقي — كل طلب يستهلك حصة المزود.\n\nالمتابعة؟`)) {
+              probeAllMut.mutate(enabledProviders);
+            }
+          }}
+          title="يفحص نماذج كل مزود مفعّل ويملك مفتاحاً (طلب محادثة حقيقي لكل نموذج)"
         >
           {probeAllMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
           {probeAllMut.isPending ? 'جارٍ الفحص…' : `فحص المزودات المفعّلة (${enabledProviders.length})`}
@@ -311,16 +332,16 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
             onChange={e => setQ(e.target.value)}
           />
         </div>
-        <select className="input !py-1.5" value={providerFilter} onChange={e => setProviderFilter(e.target.value)}>
+        <select className="input !py-1.5" aria-label="تصفية المزود" value={providerFilter} onChange={e => setProviderFilter(e.target.value)}>
           <option value="all">كل المزودات</option>
           {providers.map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
         </select>
-        <select className="input !py-1.5" value={statusFilter} onChange={e => setStatusFilter(e.target.value as StatusFilter)}>
+        <select className="input !py-1.5" aria-label="تصفية الحالة" value={statusFilter} onChange={e => setStatusFilter(e.target.value as StatusFilter)}>
           <option value="all">كل الحالات</option>
           <option value="warn">حصة فارغة / بطيء</option>
           {SEVERITY.map(s => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
         </select>
-        <select className="input !py-1.5" value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)}>
+        <select className="input !py-1.5" aria-label="ترتيب النتائج" value={sortBy} onChange={e => setSortBy(e.target.value as SortBy)}>
           <option value="severity">الترتيب: الأهم أولاً</option>
           <option value="provider">الترتيب: المزود</option>
           <option value="model">الترتيب: اسم النموذج</option>
@@ -367,7 +388,7 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
               </thead>
               <tbody>
                 {visibleRows.map(r => {
-                  const meta = STATUS_META[r.status] || STATUS_META.rejected;
+                  const meta = STATUS_META[r.status] || UNKNOWN_META;
                   const Icon = meta.icon;
                   const isThisProbing = probeOneMut.isPending && probeOneMut.variables?.model === r.model;
                   return (
@@ -378,6 +399,14 @@ export function SortTab({ onToast }: { onToast?: (msg: string, type?: 'info' | '
                         <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold', meta.badge)}>
                           <Icon className="w-3 h-3" /> {meta.label}
                         </span>
+                        {isStaleOk(r) && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold badge-warning mr-1"
+                            title="بيانات فحص قديمة (أقدم من يوم) — الخادم يعيد فحصها تلقائياً؛ قد تكون النتيجة تغيّرت"
+                          >
+                            <Clock className="w-3 h-3" /> قديم {fmtAgo(r.checked_at)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-ink-muted">{r.latency_ms ? `${r.latency_ms}ms` : '—'}</td>
                       <td className="px-3 py-2 text-ink-dim">{r.checked_at ? fmtAgo(r.checked_at) : '—'}</td>
