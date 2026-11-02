@@ -25,6 +25,7 @@
     "test:decrypt": "node --import tsx tests/v2-decrypt.check.tsx",
     "test:prod": "node --import tsx tests/production.e2e.tsx",
     "test": "node --import tsx tests/security.check.tsx && node --import tsx tests/crypto.check.tsx && node --import tsx tests/modules.check.tsx && node --import tsx tests/agents.check.tsx && node --import tsx tests/routing.check.tsx && node --import tsx tests/stale-probe.check.tsx && node --import tsx tests/web.check.tsx",
+    "backup": "node scripts/backup.mjs",
     "lint": "tsc -b"
   },
   "dependencies": {

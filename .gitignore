@@ -45,3 +45,5 @@ node_modules/
 staged.txt
 tests/_shots/
 data/.testkeys.json
+# مجلد النسخ الاحتياطية (يحتوي .credkey — لا يُرفع أبداً)
+data/backups/
