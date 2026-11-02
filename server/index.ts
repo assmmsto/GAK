@@ -1521,15 +1521,18 @@ app.post('/api/providers/:id/keys', async (req, res) => {
   if (!incoming.length) return res.status(400).json({ error: 'key أو keys مطلوب' });
   try {
     let added = 0;
+    let duplicates = 0;
     for (const k of incoming) {
-      await db.addProviderKey(id, k, body.label || null);
-      added++;
+      const row = await db.addProviderKey(id, k, body.label || null);
+      if (row?.existed) duplicates++; else added++;
     }
     await router.reloadProviderKeys(id);
     invalidateModelsCache();
-    await db.logEvent('provider_key.added', { provider: id, status: 'success', meta: { count: added } });
+    await db.logEvent('provider_key.added', { provider: id, status: 'success', meta: { count: added, duplicates } });
     broadcast({ type: 'provider-keys', providerId: id });
-    res.json({ ok: true, added, keys: router.keyDetails(id), summary: router.keySummary(router.getProvider(id)) });
+    // duplicates: المفاتيح المكرّرة تُقبل بلا خطأ (تُعاد كـ«مفعّلة/غير محجوبة») لكن
+    // لا يُدّعى إضافتها — كان الرد يقول added=N دائماً حتى لو لم يُدرج صف واحد.
+    res.json({ ok: true, added, duplicates, keys: router.keyDetails(id), summary: router.keySummary(router.getProvider(id)) });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

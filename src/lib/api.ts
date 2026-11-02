@@ -355,7 +355,7 @@ export const api = {
   providerKeys: (id: string) =>
     req<{ provider: string; keys: ProviderKeyInfo[]; summary: KeySummary }>(`/api/providers/${encodeURIComponent(id)}/keys`),
   addProviderKeys: (id: string, keys: string[], label?: string) =>
-    req<{ ok: boolean; added: number; keys: ProviderKeyInfo[]; summary: KeySummary }>(
+    req<{ ok: boolean; added: number; duplicates: number; keys: ProviderKeyInfo[]; summary: KeySummary }>(
       `/api/providers/${encodeURIComponent(id)}/keys`,
       { method: 'POST', body: JSON.stringify({ keys, label }) }
     ),

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { parse as yamlParse } from 'yaml';
 
 const CATALOG_PATH = join(process.cwd(), 'server', 'catalog.yaml');
+const PROVIDERS_PATH = join(process.cwd(), 'server', 'providers.yaml');
 
 export type CatalogEntry = {
   id: string; name: string; baseUrl: string;
@@ -36,6 +37,20 @@ export function loadCatalog() {
     catalogCache = catalogCache || { providers: [], keyPatterns: [] };
   }
   return catalogCache;
+}
+
+// مزودات providers.yaml كما هي على القرص — بلا قيم مفاتيح، فقط الهوية واسم متغيّر
+// البيئة. تُستخدم لمعرفة «أي مزود معروف» دون الاعتماد على حالة الخادم المُحمَّلة.
+export function configuredProviders(): Array<{ id: string; apiKeyEnv: string | null }> {
+  try {
+    if (!existsSync(PROVIDERS_PATH)) return [];
+    const j = (yamlParse(readFileSync(PROVIDERS_PATH, 'utf8')) as any) || {};
+    return (j.providers || [])
+      .map((p: any) => ({ id: String(p?.id || '').trim(), apiKeyEnv: p?.apiKeyEnv ? String(p.apiKeyEnv) : null }))
+      .filter((p: { id: string }) => p.id);
+  } catch {
+    return [];
+  }
 }
 
 // تخمين المزوّد من بادئة المفتاح — «الصق المفتاح فقط»

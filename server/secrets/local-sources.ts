@@ -7,7 +7,7 @@
 // ومتغيّرات البيئة تُقرأ من قائمة مغلقة مستخرجة من الكتالوج.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadCatalog, deriveEnvName } from '../services/catalog.js';
+import { loadCatalog, deriveEnvName, configuredProviders } from '../services/catalog.js';
 import { isValidProviderId, providerIdFromEnvName, type KeySource, type SecretEntry } from './source.js';
 
 const SECRETS_FILE = join(process.cwd(), 'data', 'secrets.json');
@@ -116,13 +116,18 @@ export class EnvSecretSource implements KeySource {
     // S8: كان أي `*_API_KEY` في البيئة يُحفظ مفتاحاً لمزود غير موجود (مثل
     // ATRIA_DAWN_PREVIEW_API_KEY) ⇒ نسخة سرّية إضافية بلا مستهلك، وقد تُظهر المزود
     // في العدّادات. المعروض فقط يُخزَّن، والباقي يُبلَّغ عنه بلا كتابة.
+    // وكانت «المعروف» = الكتالوج وحده، فأُسقط مفتاح كل مزود مُعرَّف في providers.yaml
+    // وجاهز للعمل (dahl مثلاً) — أي تعطيل مصدر البيئة للمزودات المُشغَّلة فعلياً.
+    const configured = configuredProviders();
     const known = new Set<string>(loadCatalog().providers.map(p => p.id));
+    for (const p of configured) known.add(p.id);
     const ignored: string[] = [];
     for (const [name, raw] of Object.entries(process.env)) {
       if (!/^[A-Z0-9_]+_API_KEYS?$/.test(name)) continue;
       const val = String(raw || '').trim();
       if (!val) continue;
-      const pid = providerIdFromEnvName(name);
+      // اسم المتغيّر المعلن في providers.yaml يفوز على تخمين المعرّف من الاسم
+      const pid = configured.find(p => p.apiKeyEnv === name)?.id || providerIdFromEnvName(name);
       if (!pid || !known.has(pid)) { ignored.push(name); continue; }
       const fp = `${pid}:${val}`;
       if (seen.has(fp)) continue;

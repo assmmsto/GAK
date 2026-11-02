@@ -11,6 +11,10 @@ import { dahlTestKeys } from './_fixtures.mjs';
 const DAHL_KEYS = dahlTestKeys();
 const HAS_KEYS = DAHL_KEYS.length > 0;
 const K1 = DAHL_KEYS[0] || 'dahl_PLACEHOLDER_NO_FIXTURE';
+// المفاتيح المزروعة مسبقاً (بيئة التشغيل) لا تصلح لاختبار «لصق مفتاح جديد»:
+// إعادة لصقها مكرّر ⇒ لا يزيد العدّاد، وهو سلوك صحيح لا عيب.
+// بعد الجلب الأول نستبعد كل مفتاح موجود فعلاً في القاعدة.
+let KEYS_FOR_PASTE = [...DAHL_KEYS];
 
 const BASE = process.env.BASE || 'http://127.0.0.1:3212';
 const DANGER = process.env.SKIP_DANGER !== '1'; // استثناء الإجراءات المدمّرة عند التشغيل على الحقيقي
@@ -58,24 +62,42 @@ try { // ← حماية شاملة: أي انهيار في السكربت لا �
 // ============ 0) الهيكل العام ============
 group('الهيكل العام');
 check('العنوان AI Gateway', (await page.locator('h1').first().textContent())?.includes('AI Gateway'));
-check('شارة Online', await page.locator('text=Online').first().isVisible());
-check('بطاقة Providers', (await page.locator('text=Providers').count()) > 0);
-check('بطاقة Requests (24h)', (await page.locator('text=Requests (24h)').count()) > 0);
-check('شريط Unified Endpoint ظاهر', await page.locator('text=Unified Endpoint').first().isVisible());
-for (const tip of ['أي مفتاح ميت؟', 'المزامنة والتدوير التلقائي', 'Manage AI providers', 'اللي يشتغل vs المرفوض', 'Token consumption', 'Recent events', 'Test chat']) {
+// شارة الاتصال نصّها محسوب من حالة المزوّدين: «يعمل» / «مزوّد متعطّل N/M» / «لا مزوّد متاح» / «لا مزوّدين».
+// ملاحظة: المتعطّل يحمل عدّاً (M/N) فلابد أن يقبله النمط، وإلا فشل الفحص على حالة واقعية مشروعة.
+check('شارة الاتصال', (await page.locator('text=/^(يعمل|مزوّد متعطّل \\d+\\/\\d+|لا مزوّد متاح|لا مزوّدين)$/').count()) > 0);
+check('بطاقة المزوّدين', (await page.locator('text=المزوّدون').count()) > 0);
+check('بطاقة الطلبات (24 ساعة)', (await page.locator('text=الطلبات (24 ساعة)').count()) > 0);
+check('شريط نقطة النهاية الموحّدة ظاهر', await page.locator('text=نقطة النهاية الموحّدة').first().isVisible());
+for (const tip of ['أي مفتاح ميت؟', 'المزامنة والتدوير التلقائي', 'إدارة مزوّدي الذكاء الاصطناعي', 'اللي يشتغل مقابل المرفوض', 'استهلاك التوكنات', 'أحدث الأحداث', 'اختبار المحادثة']) {
   check('تبويب موجود: ' + tip, await page.locator(`nav button[data-tooltip="${tip}"]`).count() === 1);
 }
 
 // ============ 1) EndpointBanner — كل الأزرار ============
-group('Unified Endpoint — كل الأزرار');
-await page.locator('button[title="Copy URL"]').click();
+group('نقطة النهاية الموحّدة — كل الأزرار');
+await page.locator('button[title="انسخ العنوان"]').click();
 await page.waitForTimeout(400);
 check('زر نسخ URL يعمل (حصيلة الحافظة)', (await page.evaluate(() => navigator.clipboard.readText().catch(() => ''))).includes('/v1'));
 
 const keysBefore = (await j('/api/keys')).keys.length;
 check('مفتاح واحد على الأقل موجود للاختبار', keysBefore >= 1, 'keys=' + keysBefore);
-await page.locator('blockquote, .card').filter({ hasText: 'Unified Endpoint' }).locator('button', { hasText: 'Copy' }).first().click().catch(() => {});
+
+// مفتاح عميل حقيقي للملعب. `GET /api/keys` يعيد بصمة مقنّعة فقط (key_hint) —
+// القيمة الكاملة تُعرض مرة واحدة عند الإنشاء. فننشئه هنا ونلتقط القيمة، ونحقنها
+// في localStorage حيث تقرأها الواجهة (gw_ui_key). بدونها يخرج /v1/models بلا
+// مصادقة فيردّ 401 وتبقى قائمة النماذج فارغة — وهذا سلوك الخادم الصحيح لا عطل.
+const created = await jpost('/api/keys', { name: 'pw-ui' });
+const uiKeyReal = created?.key || '';
+check('أُنشئ مفتاح واجهة للاختبار', /^gw_/.test(uiKeyReal), 'key=' + (uiKeyReal ? 'ok' : 'missing'));
+if (uiKeyReal) {
+  await page.evaluate(k => localStorage.setItem('gw_ui_key', k), uiKeyReal);
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(1200);
+}
+await page.locator('blockquote, .card').filter({ hasText: 'نقطة النهاية الموحّدة' }).locator('button', { hasText: 'نسخ' }).first().click().catch(() => {});
 await page.waitForTimeout(200);
+// خطّ الأساس لإجراءات الواجهة التدميرية — بعد إنشاء مفتاح التركيب أعلاه، وإلا
+// حُسب إنشاؤه ضمن فرق الواجهة فظهر +2 بدل +1.
+const keysBaseline = (await j('/api/keys')).keys.length;
 
 // نشاط المفتاح (لوحة الإحصاءات) — أول صف
 const activityBtn = page.locator('button[title="نشاط المفتاح"]').first();
@@ -87,16 +109,21 @@ if (await activityBtn.count()) {
 }
 
 if (DANGER) {
-  await page.locator('button', { hasText: 'Generate Key' }).click();
-  await page.waitForTimeout(800);
+  await page.locator('button', { hasText: 'توليد مفتاح' }).click();
+  await page.waitForTimeout(600);
+  await page.locator('button', { hasText: 'أنشئ المفتاح' }).click();
+  await page.waitForTimeout(900);
   check('إنشاء مفتاح: يظهر شريط «انسخه الآن»', (await page.locator('text=انسخه الآن').count()) > 0);
   const keysAfter = (await j('/api/keys')).keys.length;
-  check('إنشاء مفتاح: القاعدة زادت 1', keysAfter === keysBefore + 1, `${keysBefore}→${keysAfter}`);
+  check('إنشاء مفتاح: القاعدة زادت 1', keysAfter === keysBaseline + 1, `${keysBaseline}→${keysAfter}`);
   await page.locator('button', { hasText: 'تم' }).first().click();
   await page.waitForTimeout(300);
-  const trashCount = await page.locator('button[title="Delete key"]').count();
+  const trashCount = await page.locator('button[title="حذف المفتاح"]').count();
   if (trashCount > 0) {
-    await page.locator('button[title="Delete key"]').first().click();
+    await page.locator('button[title="حذف المفتاح"]').first().click();
+    await page.waitForTimeout(400);
+    // الحذف يفتح ConfirmDialog — بلا تأكيد لا يُحذف شيء (وهذا هو السلوك الصحيح)
+    await page.locator('button', { hasText: /^حذف$/ }).last().click();
     await page.waitForTimeout(800);
     const afterDel = (await j('/api/keys')).keys.length;
     check('حذف مفتاح: القاعدة رجعت', afterDel === keysAfter - 1, `${keysAfter}→${afterDel}`);
@@ -105,24 +132,24 @@ if (DANGER) {
 
 // ============ 2) تبويب Providers ============
 group('Providers — البطاقة والنوافذ');
-await page.locator('nav button[data-tooltip="Manage AI providers"]').click();
+await page.locator('nav button[data-tooltip="إدارة مزوّدي الذكاء الاصطناعي"]').click();
 await page.waitForTimeout(800);
 check('بطاقة المزود dahl ظاهرة', (await page.locator('text=dahl').count()) > 0);
-check('زر Test All ظاهر', await page.locator('button', { hasText: 'Test All' }).first().isVisible());
+check('زر افحص الكل ظاهر', await page.locator('button', { hasText: 'افحص الكل' }).first().isVisible());
 check('زر استيراد جماعي ظاهر', await page.locator('button', { hasText: 'استيراد جماعي' }).first().isVisible());
-check('زر Add Provider ظاهر', await page.locator('button', { hasText: 'Add Provider' }).first().isVisible());
+check('زر أضف مزوّداً ظاهر', await page.locator('button', { hasText: 'أضف مزوّداً' }).first().isVisible());
 
 // بطاقة المزود تحديداً: التي تحوي زر إدارة المفاتيح — لا بطاقة «أحدث حدث» العلوية
 // (كلتاهما .card وتحويان كلمة dahl بعد أول حدث health.ok)
 const card = page.locator('.card').filter({ has: page.locator('button[title^="إدارة المفاتيح"]') }).first();
 // Test على البطاقة: النتيجة تصل كـtoast بصيغة «dahl: ✓ Nms» (ليست داخل البطاقة)
-await card.locator('button', { hasText: /^Test$/ }).first().click();
+await card.locator('button', { hasText: /^افحص$/ }).first().click();
 let testResultShown = false;
 for (let i = 0; i < 30 && !testResultShown; i++) {
   await page.waitForTimeout(800);
   testResultShown = (await page.locator('text=/dahl:\\s*(✓|✗)/').count()) > 0;
 }
-check('زر Test على البطاقة يعطي نتيجة (toast ✓/✗)', testResultShown);
+check('زر «افحص» على البطاقة يعطي نتيجة (toast ✓/✗)', testResultShown);
 
 // نافذة المفاتيح
 await card.locator('button[title^="إدارة المفاتيح"]').first().click();
@@ -131,17 +158,29 @@ check('نافذة المفاتيح تفتح وتظهر المفاتيح', (await
 check('ملخص النوافذ (الإجمالي/متاحة) ظاهر', (await page.locator('text=متاحة').count()) > 0);
 
 if (DANGER) {
-  const beforeKeys = (await j('/api/providers/dahl/keys')).keys.length;
-  await page.locator('textarea[placeholder*="AIza"]').fill(K1 + '\n');
+  // اختيار مفتاح غير موجود في القاعدة: اللصق المكرّر لا يزيد العدد (سلوك صحيح)،
+  // فاختبار «أُضيف» يحتاج مفتاحاً جديداً فعلاً.
+  const savedKeys = (await j('/api/providers/dahl/keys')).keys;
+  const beforeKeys = savedKeys.length;
+  // دليل الاستبعاد: عدد المفاتيح المحفوظة مقابل مفاتيح التركيبات. إن كان
+  // المحفوظ أقل فالأمر مجرّد اختيار مفتاح غير محفوظ — والقيمة لا تُقارن
+  // بالنص المقنّع لأن hint لا يحمل المفتاح كاملاً.
+  const pasted = KEYS_FOR_PASTE[Math.min(beforeKeys, KEYS_FOR_PASTE.length - 1)] || K1;
+  check('مفتاح اللصق متاح للاختبار', Boolean(pasted && pasted !== 'dahl_PLACEHOLDER_NO_FIXTURE'));
+  await page.locator('textarea[placeholder*="AIza"]').fill(pasted + '\n');
   await page.locator('input[placeholder^="تسمية اختيارية"]').fill('pw-added');
   await page.locator('button', { hasText: /^إضافة/ }).last().click();
   await page.waitForTimeout(1500);
   const afterKeys = (await j('/api/providers/dahl/keys')).keys.length;
   check('لصق مفتاح في النافذة → أُضيف', afterKeys === beforeKeys + 1, `${beforeKeys}→${afterKeys}`);
-  // حذف المفتاح المُضاف (تدميري)
+  // حذف المفتاح المُضاف (تدميري) — الزر يفتح ConfirmDialog، فالتأكيد خطوة لازمة.
   const row = page.locator('.rounded-lg', { hasText: 'pw-added' }).first();
   await row.locator('button[title="حذف نهائي"]').click();
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(500);
+  const confirmBtn = page.getByRole('button', { name: /^حذف نهائي$/ }).last();
+  check('الحذف يطلب تأكيداً صريحاً', (await confirmBtn.count()) > 0);
+  await confirmBtn.click();
+  await page.waitForTimeout(1500);
   const finalKeys = (await j('/api/providers/dahl/keys')).keys.length;
   check('حذف المفتاح من النافذة → رجع العدد', finalKeys === beforeKeys, `${finalKeys}`);
 }
@@ -159,7 +198,7 @@ await page.locator('button[aria-label="إغلاق"]').first().click();
 await page.waitForTimeout(300);
 
 // نافذة إضافة مزود — تحقق من التنبيه الذكي «موجود مسبقاً» ثم إغلاق
-await page.locator('button', { hasText: 'Add Provider' }).first().click();
+await page.locator('button', { hasText: 'أضف مزوّداً' }).first().click();
 await page.waitForTimeout(500);
 await page.locator('input[placeholder="my-provider"]').fill('dahl');
 await page.waitForTimeout(700);
@@ -169,7 +208,7 @@ await page.waitForTimeout(300);
 
 // ============ 3) فرز النماذج ============
 group('فرز النماذج');
-await page.locator('nav button[data-tooltip="اللي يشتغل vs المرفوض"]').click();
+await page.locator('nav button[data-tooltip="اللي يشتغل مقابل المرفوض"]').click();
 await page.waitForTimeout(900);
 check('غاية التبويب ظاهرة', (await page.locator('text=طلب محادثة حقيقي').count()) > 0);
 // الجدول يُعرض فقط عند وجود نتائج — وإلا حالة فراغ صريحة (كلاهما سلوك صحيح)
@@ -228,11 +267,17 @@ else if (await rowBtn.count()) {
 if (DANGER && !HAS_KEYS) check('فحص المزودات المفعّلة — متخطى (لا تركيبات مفاتيح)', true);
 if (DANGER && HAS_KEYS) {
   // الترتيب الصحيح: فحص المزودات المفعّلة أولاً (ينتج صفوفاً ويفعّل الزرين الآخرين)
-  lastDialogMsg = '';
-  await page.locator('button', { hasText: 'فحص المزودات المفعّلة' }).click();
+  // ملاحظة: التأكيد هنا ConfirmDialog داخل React (لا window.confirm)، فـpage.on('dialog')
+  // لا يلتقطه — نقرأ نص الحوار من DOM. ونص الزر يحمل عدّاً «(N)» فلا يُطابق حرفياً.
+  await page.locator('button', { hasText: 'فحص المزودات المفعّلة' }).first().click();
   await page.waitForTimeout(800);
+  const asksBox = page.locator('text=/نموذج/').first();
+  const confirmProbe = page.getByRole('button', { name: /^ابدأ الفحص$/ }).last();
   check('حوار التأكيد الجديد يذكر الحجم المتوقع (تأكيد قبل استهلاك الحصة)',
-    /نموذج/.test(lastDialogMsg), 'dialog=' + lastDialogMsg.slice(0, 60).replace(/\n/g, ' '));
+    (await confirmProbe.count()) > 0 && (await asksBox.count()) > 0,
+    'confirm=' + (await confirmProbe.count()));
+  // الحوار لا يبدأ الفحص إلا بعد الموافقة الصريحة
+  if ((await confirmProbe.count()) > 0) await confirmProbe.click();
 
   let done = false;
   for (let i = 0; i < 60 && !done; i++) {
@@ -250,10 +295,13 @@ if (DANGER && HAS_KEYS) {
     check('أعد فحص المرفوض نفّذ', true);
   } else check('لا مرفوض الآن — أعد فحص المرفوض معطّل بحق', true);
 
-  // مسح النتائج — الآن مفعّل بعد وجود صفوف
+  // مسح النتائج — الآن مفعّل بعد وجود صفوف (يفتح ConfirmDialog)
   const clearBtn = page.locator('button').filter({ hasText: 'مسح النتائج' }).first();
   if ((await clearBtn.count()) && !(await clearBtn.isDisabled())) {
-    await clearBtn.click(); // confirm تلقائي
+    await clearBtn.click();
+    await page.waitForTimeout(500);
+    const confirmClear = page.getByRole('button', { name: /^امسح النتائج$/ }).last();
+    if ((await confirmClear.count()) > 0) await confirmClear.click();
     await page.waitForTimeout(2000);
     const total = (await j('/api/probe/results')).total;
     check('مسح النتائج فرّغ الجدول', total === 0, 'total=' + total);
@@ -312,7 +360,7 @@ if (DANGER) {
 
 // ============ 5) Usage ============
 group('Usage — الإعدادات');
-await page.locator('nav button[data-tooltip="Token consumption"]').click();
+await page.locator('nav button[data-tooltip="استهلاك التوكنات"]').click();
 await page.waitForTimeout(900);
 check('لوحة تخفيف الاستهلاك ظاهرة', (await page.locator('text=تخفيف استهلاك الرموز').count()) > 0);
 const cacheChk = page.locator('label', { hasText: 'ذاكرة الردود المتطابقة' }).locator('input[type=checkbox]');
@@ -330,7 +378,7 @@ if (DANGER) {
 
 // ============ 6) Logs ============
 group('Logs — الفلاتر');
-await page.locator('nav button[data-tooltip="Recent events"]').click();
+await page.locator('nav button[data-tooltip="أحدث الأحداث"]').click();
 await page.waitForTimeout(900);
 // ملاحظة: «Provider» هنا تطابق أيضاً تبويب التنقل «Providers» — نقيّد النقر على main
 const main = page.locator('main');
@@ -353,13 +401,13 @@ check('حالة الأحداث صريحة (صفوف أو فراغ)', (await page
 
 // ============ 7) Playground — محادثة حقيقية ============
 group('Playground — محادثة حقيقية');
-await page.locator('nav button[data-tooltip="Test chat"]').click();
+await page.locator('nav button[data-tooltip="اختبار المحادثة"]').click();
 await page.waitForTimeout(1200);
 const modelSelect = page.locator('select').first();
-if (!HAS_KEYS) {
-  check('Playground: بنية القائمة والإدخال ظاهرة (بدون محادثة — لا تركيبات مفاتيح)',
+if (!uiKeyReal) {
+  check('Playground: بنية القائمة والإدخال ظاهرة (بدون محادثة — لا مفتاح واجهة)',
     (await modelSelect.count()) > 0 && (await page.locator('textarea').nth(1).count()) > 0);
-  check('المحادثة الحقيقية — متخطاة (لا تركيبات مفاتيح)', true);
+  check('المحادثة الحقيقية — متخطاة (لا مفتاح واجهة)', true);
 } else {
 // ننتظر تحميل قائمة النماذج فعلاً (استعلام /v1/models) ثم نختار GLM
 let modelLoaded = false;
@@ -377,7 +425,7 @@ if (modelLoaded) {
 }
 const userTa = page.locator('textarea').nth(1);
 await userTa.fill('Reply with exactly: OK');
-await page.locator('button', { hasText: 'Send' }).first().click();
+await page.locator('button', { hasText: 'أرسل' }).first().click();
 // الدليل القاطع على نجاح المحادثة: ظهور وسم المزود/النموذج (dahl/…) الذي لا
 // يُصيَّر إلا مع رد ناجح — لا الاعتماد على كلمة 'OK' التي قد ترد في نصوص أخرى
 let replied = false;

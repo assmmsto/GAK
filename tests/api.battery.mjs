@@ -157,10 +157,18 @@ check('PATCH مفتاح enabled:"yes" → 400 (كان 200 صامتاً)', (await
 // P2-1 + خلل#1: خطأ عميل يعود 400، ونموذج غير موجود يعود 404
 // مهم: KEY الأصلي حُذف في قسم سابق — ننشئ مفتاحاً جديداً للحراس
 const guardKey = (await jpost('/api/keys', { name: 'guard-key' })).body?.key;
-check('/v1/chat/completions برسائل فارغة → 400 (كان 504)', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'auto', messages: [] }) })).status === 400);
-check('/v1/chat/completions max_tokens نصي → 400', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'x' }], max_tokens: 'كبير' }) })).status === 400);
-check('/v1/chat/completions بنموذج غير موجود → 404 (كان 504)', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'no-such-zzz-999', messages: [{ role: 'user', content: 'x' }] }) })).status === 404);
-check('/v1/messages بنموذج غير موجود → 404 (كان 502)', (await raw('/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'no-such-zzz-999', messages: [{ role: 'user', content: 'x' }] }) })).status === 404);
+// شرط مسبق صريح: على خادم بلا مفتاح مزوّد يعود كل طلب 503 «لا مزوّد متاح» قبل
+// أن يصل أي نموذج للفحص — فتسقط الحراس لأصل لا علاقة له بها وتبدو البطارية حمراء
+// وهي سليمة. نفحص الشرط مرة ونعلنه بدل تشويه نتيجة الحارس.
+const seededKey = (await jget('/api/providers/dahl/keys')).body?.summary?.total ?? 0;
+if (!seededKey) {
+  console.log('SKIP  حراس 400/404 على /v1 — لا مفتاح مزوّد على الخادم (كل طلب يعود 503 قبل الوصول للنموذج)');
+} else {
+  check('/v1/chat/completions برسائل فارغة → 400 (كان 504)', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'auto', messages: [] }) })).status === 400);
+  check('/v1/chat/completions max_tokens نصي → 400', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'x' }], max_tokens: 'كبير' }) })).status === 400);
+  check('/v1/chat/completions بنموذج غير موجود → 404 (كان 504)', (await raw('/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'no-such-zzz-999', messages: [{ role: 'user', content: 'x' }] }) })).status === 404);
+  check('/v1/messages بنموذج غير موجود → 404 (كان 502)', (await raw('/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guardKey}` }, body: JSON.stringify({ model: 'no-such-zzz-999', messages: [{ role: 'user', content: 'x' }] }) })).status === 404);
+}
 const guardId = (await jget('/api/keys')).body.keys.find(k => k.name === 'guard-key')?.id;
 if (guardId) await jdel('/api/keys/' + guardId);
 

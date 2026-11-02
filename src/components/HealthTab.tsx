@@ -52,6 +52,9 @@ export function HealthTab() {
   const [replacing, setReplacing] = useState<HealthKey | null>(null);
   const [newKeyValue, setNewKeyValue] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  // إجراءات جماعية — يبقى هنا لا بعد `if (isLoading) return`، وإلا اختلف عدد
+  // الـhooks بين أول رسم (تحميل) والثاني (بيانات) فتنهار الشجرة كلها (React #310).
+  const [bulkDisableAsk, setBulkDisableAsk] = useState<number | null>(null);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['health'],
@@ -127,9 +130,6 @@ export function HealthTab() {
   }
 
   const problems = (counts?.auth_error || 0) + (counts?.quota_exhausted || 0);
-
-  // ===== إجراءات جماعية =====
-  const [bulkDisableAsk, setBulkDisableAsk] = useState<number | null>(null);
 
   async function bulkDisableDead() {
     const dead = (data?.keys || []).filter(k => k.status === 'auth_error' && k.enabled);

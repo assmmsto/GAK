@@ -528,6 +528,14 @@ export class EventDB {
     await this.ready;
     const encKey = encryptSecret(key);
     const fp = keyFingerprint(key);
+    // هل البصمة موجودة مسبقاً؟ يُحسم **قبل** الإدراج لأن ON CONFLICT يُحدّث الصف
+    // نفسه بدل إدراج صف جديد، فيستحيل التمييز بعده. اللصق المكرر ليس خطأً، لكن
+    // على الاستدعاء أن يعرف أنه لم يُضف مفتاحاً جديداً كي لا يبلّغ بـ«أُضيف».
+    const dup = await this.db.execute({
+      sql: `SELECT id FROM provider_keys WHERE provider = ? AND key_fp = ?`,
+      args: [provider, fp]
+    });
+    const existed = dup.rows.length > 0;
     // COALESCE على التعارض: من لم يحدّد مصدراً لا يحطّم مصدراً أعلى منه مسجَّلاً مسبقاً.
     const r = await this.db.execute({
       sql: `INSERT INTO provider_keys (provider, key, key_fp, label, ts, source) VALUES (?, ?, ?, ?, ?, ?)
@@ -538,7 +546,7 @@ export class EventDB {
       args: [provider, encKey, fp, label ?? null, Date.now(), source ?? 'manual', source ?? null]
     });
     const row = r.rows[0] as any;
-    return row ? { ...row, key } : row;
+    return row ? { ...row, key, existed } : row;
   }
 
   /**

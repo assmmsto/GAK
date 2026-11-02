@@ -50,7 +50,11 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
     setBusy(true);
     try {
       const r = await api.addProviderKeys(providerId, list, label.trim() || undefined);
-      onToast?.(`أُضيف ${r.added} مفتاح إلى ${providerId}`, 'success');
+      // المكرّر لا يُضاف صفاً جديداً (يُعاد تفعيله) — نقول ذلك صراحةً بدل
+      // «أُضيف 1» الكاذب حين يكون المفتاح موجوداً أصلاً.
+      if (!r.added && r.duplicates) onToast?.(`المفتاح موجود مسبقاً — أُعيد تفعيله`, 'info');
+      else if (r.duplicates) onToast?.(`أُضيف ${r.added} · ${r.duplicates} موجود مسبقاً`, 'success');
+      else onToast?.(`أُضيف ${r.added} مفتاح إلى ${providerId}`, 'success');
       setBulk(''); setLabel('');
       refresh();
     } catch (e: any) { onToast?.(e.message, 'error'); }

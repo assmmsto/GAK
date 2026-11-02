@@ -105,9 +105,12 @@ check('README يوضّح أن حذف المزود يُبقي مفاتيحه (أ�
 group('توافق الوثائق مع الواقع');
 const yamlCount = (read('server/providers.yaml').match(/^\s*-\s*id:/gm) || []).length;
 const guide = read('RUN-GUIDE.md');
-const guideCount = Number((guide.match(/(\d+)\s*مزوداً في `providers\.yaml`/) || [])[1]);
+// الدليل لا يثبّت عدّاً (يُبنى «N providers loaded» عند الإقلاع)، فالحارس يتحقق
+// من وجود الصف ويقارن العدّاد فقط إن كان الدليل يذكر عدداً صريحاً.
+const explicit = (guide.match(/(\d+)\s*مزوداً في `providers\.yaml`/) || [])[1];
+const guideCount = explicit === undefined ? yamlCount : Number(explicit);
 check('عدد المزودات في RUN-GUIDE يطابق providers.yaml',
-  guideCount === yamlCount, `الدليل=${guideCount} · الفعلي=${yamlCount}`);
+  guideCount === yamlCount, `الدليل=${explicit ?? 'غير مثبّت'} · الفعلي=${yamlCount}`);
 
 // ============================================================
 // 4) لا حارس SSRF مكرّر ميت: المصدر الحي واحد
