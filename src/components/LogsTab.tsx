@@ -97,7 +97,7 @@ export function LogsTab() {
                 )}
                 style={{ animationDelay: `${Math.min(i * 10, 200)}ms` }}
               >
-                <span className="font-mono text-ink-dim tabular-nums">{time}</span>
+                <span dir="ltr" className="font-mono text-ink-dim tabular-nums">{time}</span>
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={cn(
                     'font-mono font-semibold shrink-0',
@@ -105,7 +105,7 @@ export function LogsTab() {
                   )}>{e.type}</span>
                   {detail && <span className="font-mono text-ink-muted truncate">{detail}</span>}
                   {e.error && (
-                    <span className="font-mono text-bad truncate ml-auto" title={e.error}>
+                    <span dir="ltr" className="font-mono text-bad truncate ml-auto text-left" title={e.error}>
                       · {e.error.slice(0, 60)}
                     </span>
                   )}

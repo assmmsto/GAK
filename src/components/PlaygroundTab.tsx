@@ -167,7 +167,7 @@ export function PlaygroundTab() {
                   </button>
                 )}
               </div>
-              <div className="font-mono text-[11px] text-ink truncate" title={f.val}>
+              <div dir="ltr" className="font-mono text-[11px] text-ink truncate text-left" title={f.val}>
                 {f.val === '—' ? <span className="text-ink-dim italic">يولّد تلقائياً…</span> : f.val}
               </div>
             </div>
@@ -227,7 +227,7 @@ export function PlaygroundTab() {
             <label className="flex items-center gap-1.5 text-[11px] uppercase text-ink-muted font-semibold tracking-wider">
               <MessageSquare className="w-3 h-3" /> Conversation
             </label>
-            {meta && <span className="text-[10px] font-mono text-ink-dim">{meta}</span>}
+            {meta && <span dir="ltr" className="text-[10px] font-mono text-ink-dim">{meta}</span>}
           </div>
           <div className="flex-1 min-h-[300px] max-h-[500px] overflow-y-auto space-y-2.5 pr-1">
             {messages.length === 0 ? (
@@ -271,7 +271,7 @@ export function PlaygroundTab() {
             )}
           </div>
           {meta && (
-            <div className="mt-2 pt-2 border-t border-line/50 text-[10px] font-mono text-ink-dim flex items-center gap-1.5">
+            <div dir="ltr" className="mt-2 pt-2 border-t border-line/50 text-[10px] font-mono text-ink-dim flex items-center gap-1.5">
               <Hash className="w-3 h-3" /> {meta}
             </div>
           )}
