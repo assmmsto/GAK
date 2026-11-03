@@ -397,4 +397,4 @@ on with the power button.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 AI Gateway contributors
