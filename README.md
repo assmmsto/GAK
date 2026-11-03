@@ -1,6 +1,9 @@
-# AI Gateway — Production Web Dashboard
+# GAK — Production AI Gateway
 
-Unified multi-provider AI gateway with real-time web dashboard, streaming chat, and automatic failover.
+**GAK** (Generate API Key) is a unified multi-provider AI gateway with a real-time web
+dashboard, streaming chat, and automatic failover. One endpoint, one key for every tool.
+
+![GAK dashboard](docs/screenshots/dashboard.png)
 
 ## Features
 
@@ -94,6 +97,12 @@ afterwards the dashboard shows a fingerprint (`gw_ab…wxyz`). Regenerate to rot
 
 ## Dashboard tabs
 
+![GAK client keys](docs/screenshots/gak-keys-banner.png)
+
+The strip above is the whole idea: generate a **GAK** key once, hand it to your tools, and it
+reaches every provider you have enabled. GAK keys and provider keys are two separate domains and
+never mix.
+
 | Tab | What it is for |
 |---|---|
 | **Providers** | Add, edit, enable/disable and test providers. API keys are written **encrypted to the database** (`data/gateway.db`). |
@@ -101,6 +110,18 @@ afterwards the dashboard shows a fingerprint (`gw_ab…wxyz`). Regenerate to rot
 | **Usage** | Token consumption per provider (last 24h). |
 | **Logs** | Live event stream (chat, health, provider changes). |
 | **Playground** | Streaming chat to test any model, with quick-connect details. |
+
+<p align="center">
+  <img src="docs/screenshots/tab-providers.png" width="49%" alt="Providers tab">
+  <img src="docs/screenshots/tab-usage.png" width="49%" alt="Usage tab">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/tab-playground.png" width="49%" alt="Playground tab">
+  <img src="docs/screenshots/mobile.png" width="24%" alt="Dashboard on a phone">
+</p>
+
+Regenerate these with the server running: `node scripts/screenshot.mjs`.
 
 In **Model sort**, the four KPI cards are clickable filters, the provider strip filters by provider,
 and the table is searchable and sortable. A model marked *rejected* is hidden from `/v1/models` and

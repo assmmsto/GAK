@@ -1,4 +1,4 @@
-# ci — بوابة أي تغيير في المخزن: الأنواع + حراس الاختبار + البناء الإنتاجي.
+# ci — بوابة أي تغيير في المخزن: الأسرار + الأنواع + حراس الاختبار + البناء الإنتاجي.
 # أبسط ما يفي: خطوة على كل push وpull_request، بلا matrices ولا artifacts.
 name: ci
 
@@ -11,6 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # فحص الأسرار يلزمه التاريخ كاملاً لا commit واحداً
+
+      # يمنع تكرار ما حدث سابقاً: سرّ يُرفع ثم يُحذف يبقى في التاريخ ويُقرأ للأبد.
+      - name: فحص الأسرار في التاريخ
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
