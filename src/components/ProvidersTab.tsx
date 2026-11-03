@@ -91,7 +91,7 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
           </h2>
           <p className="text-xs text-ink-dim mt-0.5">
             أضف نقاط نهاية متوافقة مع OpenAI ووجّه الطلبات عبرها — مفاتيح المزوّدين تُدار من بطاقة كل مزوّد،
-            وهي منفصلة عن المفاتيح الموحّدة في الأعلى.
+            وهي منفصلة عن مفاتيح GAK في الأعلى.
           </p>
         </div>
         <div className="flex gap-2">
@@ -230,7 +230,7 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
           className="btn btn-sm"
           onClick={onKeys}
           aria-label={`${PROVIDER_KEYS_LABEL} لـ ${p.id}`}
-          title="مفاتيح هذا المزوّد — عدة مفاتيح لنفس المصدر = سعة أكبر مع تدوير تلقائي (لا علاقة لها بمفاتيح العملاء في الأعلى)"
+          title="مفاتيح هذا المزوّد — عدة مفاتيح لنفس المصدر = سعة أكبر مع تدوير تلقائي (لا علاقة لها بمفاتيح GAK في الأعلى)"
         >
           <KeySquare className="w-3 h-3" />
           {keyCount > 0 && <span className={cn('text-[10px] font-bold tabular-nums', keyAvailable === 0 && 'text-warn')}>{keyCount}</span>}

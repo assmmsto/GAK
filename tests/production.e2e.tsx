@@ -299,7 +299,7 @@ console.log('\n--- 4) Playground: محادثة حقيقية ---');
 }
 
 // ============================================================
-// 5) EndpointBanner: المفتاح الموحّد ولوحة النشاط
+// 5) EndpointBanner: مفاتيح GAK ولوحة النشاط
 // ============================================================
 console.log('\n--- 5) EndpointBanner: العنوان والمفتاح والنشاط ---');
 {
@@ -314,7 +314,7 @@ console.log('\n--- 5) EndpointBanner: العنوان والمفتاح والنش
   check('أيقونة إعادة التوليد موجودة', !!byTitle(container, 'إعادة توليد'));
   check('أيقونة الحذف موجودة', !!byTitle(container, 'Delete key'));
   check('أيقونة النشاط موجودة', !!byTitle(container, 'نشاط المفتاح'));
-  check('زر توليد مفتاح موجود', !!btn(container, 'Generate Key'));
+  check('زر Generate API Key موجود', !!btn(container, 'Generate API Key'));
 
   // فتح لوحة النشاط (إحصاءات حقيقية)
   const actBtn: any = byTitle(container, 'نشاط المفتاح');

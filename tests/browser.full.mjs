@@ -61,19 +61,19 @@ try { // ← حماية شاملة: أي انهيار في السكربت لا �
 
 // ============ 0) الهيكل العام ============
 group('الهيكل العام');
-check('العنوان AI Gateway', (await page.locator('h1').first().textContent())?.includes('AI Gateway'));
+check('العنوان GAK', (await page.locator('h1').first().textContent())?.includes('GAK'));
 // شارة الاتصال نصّها محسوب من حالة المزوّدين: «يعمل» / «مزوّد متعطّل N/M» / «لا مزوّد متاح» / «لا مزوّدين».
 // ملاحظة: المتعطّل يحمل عدّاً (M/N) فلابد أن يقبله النمط، وإلا فشل الفحص على حالة واقعية مشروعة.
 check('شارة الاتصال', (await page.locator('text=/^(يعمل|مزوّد متعطّل \\d+\\/\\d+|لا مزوّد متاح|لا مزوّدين)$/').count()) > 0);
 check('بطاقة المزوّدين', (await page.locator('text=المزوّدون').count()) > 0);
 check('بطاقة الطلبات (24 ساعة)', (await page.locator('text=الطلبات (24 ساعة)').count()) > 0);
-check('شريط المفاتيح الموحّدة ظاهر', await page.locator('text=المفاتيح الموحّدة').first().isVisible());
+check('شريط مفاتيح GAK ظاهر', await page.locator('text=Generate API Key').first().isVisible());
 for (const tip of ['أي مفتاح ميت؟', 'المزامنة والتدوير التلقائي', 'إدارة مزوّدي الذكاء الاصطناعي', 'اللي يشتغل مقابل المرفوض', 'استهلاك التوكنات', 'أحدث الأحداث', 'اختبار المحادثة']) {
   check('تبويب موجود: ' + tip, await page.locator(`nav button[data-tooltip="${tip}"]`).count() === 1);
 }
 
 // ============ 1) EndpointBanner — كل الأزرار ============
-group('المفاتيح الموحّدة — كل الأزرار');
+group('مفاتيح GAK — كل الأزرار');
 await page.locator('button[title="انسخ العنوان"]').click();
 await page.waitForTimeout(400);
 check('زر نسخ URL يعمل (حصيلة الحافظة)', (await page.evaluate(() => navigator.clipboard.readText().catch(() => ''))).includes('/v1'));
@@ -93,7 +93,7 @@ if (uiKeyReal) {
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 }
-await page.locator('blockquote, .card').filter({ hasText: 'المفاتيح الموحّدة' }).locator('button', { hasText: 'نسخ' }).first().click().catch(() => {});
+await page.locator('blockquote, .card').filter({ hasText: 'Generate API Key' }).locator('button', { hasText: 'نسخ' }).first().click().catch(() => {});
 await page.waitForTimeout(200);
 // خطّ الأساس لإجراءات الواجهة التدميرية — بعد إنشاء مفتاح التركيب أعلاه، وإلا
 // حُسب إنشاؤه ضمن فرق الواجهة فظهر +2 بدل +1.
@@ -109,7 +109,7 @@ if (await activityBtn.count()) {
 }
 
 if (DANGER) {
-  await page.locator('button', { hasText: 'توليد مفتاح' }).click();
+  await page.locator('button', { hasText: 'Generate API Key' }).click();
   await page.waitForTimeout(600);
   await page.locator('button', { hasText: 'أنشئ المفتاح' }).click();
   await page.waitForTimeout(900);

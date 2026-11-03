@@ -92,11 +92,11 @@ export default function App() {
             )} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold heading-accent ">
-              AI Gateway
+            <h1 className="text-2xl font-bold heading-accent " dir="ltr">
+              GAK
             </h1>
             <p className="text-xs text-ink-muted mt-0.5">
-              بوابة موحّدة متعددة المزوّدين · v1.0.0
+              Generate API Key · بوابتك الموحّدة لعدة مزوّدين · v1.0.0
             </p>
           </div>
         </div>

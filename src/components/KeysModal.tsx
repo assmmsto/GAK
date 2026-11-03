@@ -102,7 +102,7 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
               عدة مفاتيح لنفس المصدر = سعة أكبر. عند نفاد حصة مفتاح ينتقل النظام للتالي تلقائياً.
             </p>
             <p className="text-[11px] text-ink-muted mt-1">
-              هذه مفاتيح تُصادِق هذه البوابة مع المزوّد — لا تُشارَك مع أدواتك، ولا علاقة لها بالمفاتيح الموحّدة.
+              هذه مفاتيح تُصادِق هذه البوابة مع المزوّد — لا تُشارَك مع أدواتك، ولا علاقة لها بمفاتيح GAK.
             </p>
           </div>
           <button onClick={onClose} className="btn btn-sm btn-ghost p-1.5 text-ink-muted hover:text-ink" aria-label="إغلاق">

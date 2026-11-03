@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Copy, Check, Plus, Trash2, Loader2, Link2, Activity, RefreshCw, BarChart3 } from 'lucide-react';
 import { api, KeyStats } from '../lib/api';
-import { timeAgo, cn, CLIENT_KEYS_LABEL } from '../lib/utils';
+import { timeAgo, cn, CLIENT_KEYS_LABEL, SYSTEM_TAGLINE } from '../lib/utils';
 import { ConfirmDialog, Modal, Spinner } from './ui';
 
 const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
@@ -109,7 +109,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
     try {
       const k = await api.createKey(name);
       setFreshKey({ key: k.key, note: `المفتاح الجديد "${name}"` });
-      onToast('أُنشئ مفتاح عميل موحّد', 'success');
+      onToast('أُنشئ مفتاح GAK', 'success');
       qc.invalidateQueries({ queryKey: ['keys'] });
     } catch (e: any) {
       onToast(e.message, 'error');
@@ -153,12 +153,17 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold">{CLIENT_KEYS_LABEL}</h2>
-          <span className="badge badge-primary">مفتاح العميل · يخاطب كل المزوّدين</span>
+          <h2 className="text-sm font-semibold" dir="ltr">{CLIENT_KEYS_LABEL}</h2>
+          <span className="badge badge-primary">{SYSTEM_TAGLINE} · تخاطب كل المزوّدين</span>
         </div>
-        <button className="btn btn-sm btn-primary" onClick={() => { setNewKeyName('my-key'); setNamingKey(true); }} disabled={creating}>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={() => { setNewKeyName('my-key'); setNamingKey(true); }}
+          disabled={creating}
+          title="Generate API Key"
+        >
           {creating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-          توليد مفتاح عميل
+          Generate API Key
         </button>
       </div>
 
@@ -166,11 +171,11 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
         كان الشريط يعرض «مفتاح واحد · كل المزوّدين» وزر «توليد مفتاح» بلا توضيح
         أن هذه مفاتيح **عملاء** تُصادِق أدواتك، لا مفاتيح المزوّدين التي تُصادِق
         Gateway معهم. المستخدم حذفها ظناً أنها مفاتيح المزوّد — والنتيجة فقدان
-        مفاتيح العملاء دون مساس بمفاتيح المزوّدين. التوضيح هنا إلزامي.
+        مفاتيح GAK دون مساس بمفاتيح المزوّدين. التوضيح هنا إلزامي.
       */}
       <div className="mb-3 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] text-ink-muted leading-relaxed">
-        <span className="font-semibold text-ink">هذه مفاتيح عملاء، لا مفاتيح مزوّدين.</span>{' '}
-        مفتاح العميل (<code className="font-mono text-primary-2" dir="ltr">gw_…</code>) هو ما تضعه في أدواتك لتتصل بهذه البوابة.
+        <span className="font-semibold text-ink">هذه مفاتيح عملائك (GAK)، لا مفاتيح مزوّدين.</span>{' '}
+        مفتاح GAK (<code className="font-mono text-primary-2" dir="ltr">gw_…</code>) هو ما تضعه في أدواتك لتتصل بهذه البوابة.
         أما مفاتيح المزوّدين (Dahl، Ollama…) فتُدار من تبويب{' '}
         <span className="font-semibold text-ink">المزوّدون</span> ← زر المفتاح في بطاقة كل مزوّد، ولا يُمسّ حذف هذه.
       </div>
@@ -222,7 +227,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
           <div className="text-xs text-ink-dim py-2">جارٍ تحميل المفاتيح…</div>
         ) : keys.length === 0 ? (
           <div className="text-xs text-ink-dim py-2">
-            لا مفاتيح عملاء بعد — localhost مفتوح. ولّد مفتاحاً لتقييد الوصول (مفاتيح المزوّدين منفصلة ولا تتأثر).
+            لا مفاتيح GAK بعد — localhost مفتوح. ولّد مفتاحاً لتقييد الوصول (مفاتيح المزوّدين منفصلة ولا تتأثر).
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -268,7 +273,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
           </div>
         )}
 
-        {/* سجل الإبطال — ما حُذف أو أُعيد توليده من مفاتيح العملاء */}
+        {/* سجل الإبطال — ما حُذف أو أُعيد توليده من مفاتيح GAK */}
         {revocations && revocations.length > 0 && (
           <div className="pt-1">
             <button
@@ -311,7 +316,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       {/* تسمية مفتاح جديد */}
       {namingKey && (
         <Modal
-          title="اسم مفتاح العميل"
+          title="اسم مفتاح GAK"
           onClose={() => setNamingKey(false)}
           footer={
             <>
@@ -326,7 +331,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
             اسم يميّز الأداة المستخدمة (cursor، codex، my-app…)
           </label>
           <p className="text-[11px] text-ink-dim mt-1.5">
-            هذا مفتاح عميل يتصل بهذه البوابة — لا علاقة له بمفاتيح المزوّدين، وتوليده لا يغيّرها.
+            هذا مفتاح GAK يتصل بهذه البوابة — لا علاقة له بمفاتيح المزوّدين، وتوليده لا يغيّرها.
           </p>
           <input
             className="input mt-1.5"
@@ -341,7 +346,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
 
       {ask && (
         <ConfirmDialog
-          title={ask.kind === 'regen' ? `إعادة توليد مفتاح العميل "${ask.name}"؟` : `حذف مفتاح العميل "${ask.name}"؟`}
+          title={ask.kind === 'regen' ? `إعادة توليد مفتاح GAK "${ask.name}"؟` : `حذف مفتاح GAK "${ask.name}"؟`}
           message={ask.kind === 'regen'
             ? 'القيمة القديمة تبطل مباشرة — كل أداة تستخدمها يجب أن تحدّثها.'
             : 'الأدوات التي تستخدمه ستتوقف عن العمل فوراً.'}
