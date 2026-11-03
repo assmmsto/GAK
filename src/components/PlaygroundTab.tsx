@@ -16,6 +16,8 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
   // قائمة النماذج تحتاج مفتاح عميل في الترويسة. المتصفح الجديد (أو الذي مُسح
   // تخزينه) لا يملك مفتاحاً، فكانت /v1/models ترد 401 والقائمة تُعرض فارغة
   // بلا تفسير — نُنشئ مفتاح الواجهة هنا مرة واحدة عند فتح التبويب.
+  // ensureUiKey تتحقق من صلاحية المفتاح المخزَّن وتستبدله إن رُفض، فنُعيد
+  // المحاولة عند فشل الشبكة بدل تسميم الذاكرة المؤقتة بنتيجة فارغة.
   const { data: modelsData, error: modelsError, isLoading: modelsLoading } = useQuery({
     queryKey: ['models'],
     queryFn: async () => {
@@ -23,7 +25,8 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
       return api.models();
     },
     refetchInterval: 10000,
-    retry: 1
+    retry: 3,
+    retryDelay: 800,
   });
   const models = modelsData?.data || [];
   const [model, setModel] = useState('auto');
@@ -161,7 +164,11 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
           </select>
           {(modelsError || (!modelsLoading && models.length === 0)) && (
             <span className="text-[11px] text-warn shrink-0" title={modelsError ? String((modelsError as Error).message) : 'لا نماذج'}>
-              {modelsError ? 'تعذّر جلب النماذج' : 'لا نماذج مسجّلة'}
+              {modelsError
+                ? (/401|invalid_api_key|Invalid API key/i.test(String((modelsError as Error).message))
+                    ? 'مفتاح الواجهة مرفوض — أعد المحاولة'
+                    : 'تعذّر جلب النماذج')
+                : 'لا نماذج مسجّلة'}
             </span>
           )}
         </div>

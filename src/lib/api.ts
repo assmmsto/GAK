@@ -140,18 +140,39 @@ export async function getUiKey(): Promise<string> {
 }
 
 /**
- * يضمن وجود مفتاح واجهة: يعيد المخزَّن، وإلا ينشئ واحداً **مرة واحدة** ويحفظه.
- * يُستدعى فقط عند إجراء صريح من المستخدم (تشغيل في اختبار محادثة)، لا في تحميل الصفحة.
+ * يضمن وجود مفتاح واجهة صالح: يعيد المخزَّن، وإن كان مرفوضاً ينشئ بديلاً.
+ *
+ * المفتاح المخزَّن قد يصير بائداً (أُبطل من قائمة المفاتيح، أو استُعيدت قاعدة
+ * قديمة، أو مُسحت صفوفه) — وحينها كان يُعاد للأبد وترد /v1/models بـ401،
+ * فتبقى قائمة النماذج فارغة والمحادثة معطّلة بلا مخرج. الآن نتحقق من صلاحيته
+ * مرة واحدة، ونستبدله عند الرفض.
  */
 export async function ensureUiKey(): Promise<string> {
   const existing = await getUiKey();
-  if (existing) return existing;
+  if (existing && await uiKeyWorks(existing)) return existing;
+  clearUiKey(); // بائد أو غير موجود — لا نُبقيه ليتكرر الرفض
   const created = await api.createKey('playground');
   _uiKey = created.key || '';
   if (_uiKey) {
     try { localStorage.setItem(UI_KEY_STORAGE, _uiKey); } catch { /* لا تخزين — يبقى في الذاكرة */ }
   }
   return _uiKey;
+}
+
+/** هل يقبله الخادم فعلاً؟ فحص واحد رخيص يمنع حلقة 401 الصامتة. */
+async function uiKeyWorks(key: string): Promise<boolean> {
+  try {
+    const res = await fetch('/v1/models', { headers: { Authorization: `Bearer ${key}` } });
+    return res.ok;
+  } catch {
+    return false; // شبكة معطوبة — لا نُبطل مفتاحاً سليماً بسببها
+  }
+}
+
+/** يُسقط المفتاح المحلي (بائداً كان أو مُبطَلاً من المستخدم). */
+export function clearUiKey(): void {
+  _uiKey = '';
+  try { localStorage.removeItem(UI_KEY_STORAGE); } catch { /* بيئة بلا localStorage */ }
 }
 
 /** المفتاح المخزَّن للواجهة (إن وُجد) — لعرضه في تفاصيل الاتصال السريع. */
@@ -447,6 +468,8 @@ export const api = {
   // explicitKey: المفتاح الذي كتبه المستخدم في اختبار محادثة — يتقدّم على مفتاح الواجهة.
   // بلا مفتاح صريح يُنشأ مفتاح الواجهة **مرة واحدة** (ensureUiKey) بقرار صريح من
   // المستخدم بضغط «أرسل»، لا بمجرد تحميل الصفحة.
+  // ensureUiKey تتحقق من صلاحية المخزَّن وتستبدله إن رُفض، فلا تبقى المحادثة
+  // معطّلة بسبب مفتاح بائد.
   chat: async (body: any, onChunk?: (chunk: string) => void, explicitKey?: string) => {
     const key = explicitKey || await ensureUiKey();
     const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
