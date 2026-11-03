@@ -24,7 +24,7 @@ const TABS: { id: Tab; label: string; icon: any; description: string }[] = [
   { id: 'sort', label: 'فرز النماذج', icon: FlaskConical, description: 'اللي يشتغل مقابل المرفوض' },
   { id: 'usage', label: 'الاستهلاك', icon: Activity, description: 'استهلاك التوكنات' },
   { id: 'logs', label: 'السجلات', icon: Zap, description: 'أحدث الأحداث' },
-  { id: 'playground', label: 'الملعب', icon: Sparkles, description: 'اختبار المحادثة' }
+  { id: 'playground', label: 'اختبار محادثة', icon: Sparkles, description: 'اختبار المحادثة' }
 ];
 
 export default function App() {

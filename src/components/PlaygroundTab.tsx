@@ -133,7 +133,7 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" /> الملعب
+            <Sparkles className="w-5 h-5 text-primary" /> اختبار محادثة
             <span className="badge-primary badge">بثّ مباشر</span>
           </h2>
           <p className="text-xs text-ink-dim mt-0.5">اختبر أي مزوّد أو نموذج بردود متدفّقة مباشرة</p>

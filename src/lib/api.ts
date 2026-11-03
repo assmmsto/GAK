@@ -141,7 +141,7 @@ export async function getUiKey(): Promise<string> {
 
 /**
  * يضمن وجود مفتاح واجهة: يعيد المخزَّن، وإلا ينشئ واحداً **مرة واحدة** ويحفظه.
- * يُستدعى فقط عند إجراء صريح من المستخدم (تشغيل في الملعب)، لا في تحميل الصفحة.
+ * يُستدعى فقط عند إجراء صريح من المستخدم (تشغيل في اختبار محادثة)، لا في تحميل الصفحة.
  */
 export async function ensureUiKey(): Promise<string> {
   const existing = await getUiKey();
@@ -444,7 +444,7 @@ export const api = {
     return req<{ rotations: RotationAudit[] }>(`/api/agents/audit${qs ? `?${qs}` : ''}`);
   },
 
-  // explicitKey: المفتاح الذي كتبه المستخدم في الملعب — يتقدّم على مفتاح الواجهة.
+  // explicitKey: المفتاح الذي كتبه المستخدم في اختبار محادثة — يتقدّم على مفتاح الواجهة.
   // بلا مفتاح صريح يُنشأ مفتاح الواجهة **مرة واحدة** (ensureUiKey) بقرار صريح من
   // المستخدم بضغط «أرسل»، لا بمجرد تحميل الصفحة.
   chat: async (body: any, onChunk?: (chunk: string) => void, explicitKey?: string) => {
