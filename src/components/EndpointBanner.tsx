@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Copy, Check, Plus, Trash2, Loader2, Link2, Activity, RefreshCw, BarChart3 } from 'lucide-react';
 import { api, KeyStats } from '../lib/api';
-import { timeAgo, cn } from '../lib/utils';
+import { timeAgo, cn, CLIENT_KEYS_LABEL } from '../lib/utils';
 import { ConfirmDialog, Modal, Spinner } from './ui';
 
 const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
@@ -58,6 +58,24 @@ function Sparkline({ series }: { series: Array<{ ts: number; n: number }> }) {
 export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'info' | 'success' | 'error') => void }) {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['keys'], queryFn: () => api.keys(), refetchInterval: 5000 });
+  // أحداث الحذف: سجل /api/logs هو الأثر الوحيد الباقي بعد محو الصف (القاعدة تحفظ hash فقط).
+  // بلا عرضه لا يبقى للمستخدم أي وسيلة لمعرفة ما الذي أُبطل.
+  const { data: revocations } = useQuery({
+    queryKey: ['keys-revoked'],
+    queryFn: async () => {
+      const { events } = await api.logs(300);
+      return events
+        .filter(e => e.type === 'key.deleted' || e.type === 'key.regenerated')
+        .map(e => {
+          let m: any = {};
+          try { m = JSON.parse(e.meta || '{}'); } catch { /* meta ليست JSON */ }
+          return { id: String(m.id ?? ''), name: m.name as string | null, hint: m.hint as string | null, ts: e.ts, kind: e.type };
+        });
+    },
+    refetchInterval: 30000,
+    retry: 1
+  });
+  const [showRevoked, setShowRevoked] = useState(false);
   const [creating, setCreating] = useState(false);
   const [regenId, setRegenId] = useState<number | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -72,7 +90,6 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
 
   const baseUrl = data?.baseUrl || '';
   const keys = data?.keys || [];
-
   const copy = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -92,7 +109,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
     try {
       const k = await api.createKey(name);
       setFreshKey({ key: k.key, note: `المفتاح الجديد "${name}"` });
-      onToast('أُنشئ مفتاح API الموحّد', 'success');
+      onToast('أُنشئ مفتاح عميل موحّد', 'success');
       qc.invalidateQueries({ queryKey: ['keys'] });
     } catch (e: any) {
       onToast(e.message, 'error');
@@ -136,13 +153,26 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <KeyRound className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold">نقطة النهاية الموحّدة</h2>
-          <span className="badge badge-primary">مفتاح واحد · كل المزوّدين</span>
+          <h2 className="text-sm font-semibold">{CLIENT_KEYS_LABEL}</h2>
+          <span className="badge badge-primary">مفتاح العميل · يخاطب كل المزوّدين</span>
         </div>
         <button className="btn btn-sm btn-primary" onClick={() => { setNewKeyName('my-key'); setNamingKey(true); }} disabled={creating}>
           {creating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-          توليد مفتاح
+          توليد مفتاح عميل
         </button>
+      </div>
+
+      {/*
+        كان الشريط يعرض «مفتاح واحد · كل المزوّدين» وزر «توليد مفتاح» بلا توضيح
+        أن هذه مفاتيح **عملاء** تُصادِق أدواتك، لا مفاتيح المزوّدين التي تُصادِق
+        Gateway معهم. المستخدم حذفها ظناً أنها مفاتيح المزوّد — والنتيجة فقدان
+        مفاتيح العملاء دون مساس بمفاتيح المزوّدين. التوضيح هنا إلزامي.
+      */}
+      <div className="mb-3 rounded-lg border border-line bg-surface-2 px-3 py-2 text-[11px] text-ink-muted leading-relaxed">
+        <span className="font-semibold text-ink">هذه مفاتيح عملاء، لا مفاتيح مزوّدين.</span>{' '}
+        مفتاح العميل (<code className="font-mono text-primary-2" dir="ltr">gw_…</code>) هو ما تضعه في أدواتك لتتصل بهذه البوابة.
+        أما مفاتيح المزوّدين (Dahl، Ollama…) فتُدار من تبويب{' '}
+        <span className="font-semibold text-ink">المزوّدون</span> ← زر المفتاح في بطاقة كل مزوّد، ولا يُمسّ حذف هذه.
       </div>
 
       {/* عرض المفتاح الكامل مرة واحدة فقط — انسخه الآن */}
@@ -192,7 +222,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
           <div className="text-xs text-ink-dim py-2">جارٍ تحميل المفاتيح…</div>
         ) : keys.length === 0 ? (
           <div className="text-xs text-ink-dim py-2">
-            لا مفاتيح بعد — localhost مفتوح. ولّد مفتاحاً لحماية النقطة عند تعريضها.
+            لا مفاتيح عملاء بعد — localhost مفتوح. ولّد مفتاحاً لتقييد الوصول (مفاتيح المزوّدين منفصلة ولا تتأثر).
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -237,6 +267,37 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
             ))}
           </div>
         )}
+
+        {/* سجل الإبطال — ما حُذف أو أُعيد توليده من مفاتيح العملاء */}
+        {revocations && revocations.length > 0 && (
+          <div className="pt-1">
+            <button
+              type="button"
+              className="text-[11px] text-ink-dim hover:text-ink underline underline-offset-2"
+              onClick={() => setShowRevoked(v => !v)}
+              aria-expanded={showRevoked}
+            >
+              {showRevoked ? 'أخفِ' : 'أظهر'} سجل المفاتيح المُبطلة ({revocations.length})
+            </button>
+            {showRevoked && (
+              <div className="mt-1.5 max-h-52 overflow-auto rounded-lg border border-line bg-surface divide-line">
+                <p className="px-3 py-1.5 text-[10px] text-ink-dim bg-surface-2">
+                  القيمة الكاملة لا يمكن استرجاعها (تُخزَّن hash فقط). البصمة تحدّد أي أداة تكسّرت؛ الأداة تُصلَح بتوليد مفتاح جديد.
+                </p>
+                {revocations.map((r, i) => (
+                  <div key={`${r.id}-${r.ts}-${i}`} className="flex items-center gap-2 px-3 py-1.5 text-[11px]">
+                    <span className={cn('shrink-0 font-medium', r.kind === 'key.regenerated' ? 'text-primary-2' : 'text-bad')}>
+                      {r.kind === 'key.regenerated' ? 'أُعيد توليده' : 'حُذف'}
+                    </span>
+                    <span className="truncate text-ink w-32" title={r.name ?? `#${r.id}`}>{r.name ?? `#${r.id}`}</span>
+                    <code className="font-mono text-ink-muted shrink-0" dir="ltr">{r.hint ?? '—'}</code>
+                    <span className="ms-auto text-ink-dim shrink-0">{timeAgo(r.ts)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* اختصار الاستخدام */}
@@ -250,7 +311,7 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
       {/* تسمية مفتاح جديد */}
       {namingKey && (
         <Modal
-          title="اسم المفتاح"
+          title="اسم مفتاح العميل"
           onClose={() => setNamingKey(false)}
           footer={
             <>
@@ -264,6 +325,9 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
           <label className="text-[11px] text-ink-dim font-semibold">
             اسم يميّز الأداة المستخدمة (cursor، codex، my-app…)
           </label>
+          <p className="text-[11px] text-ink-dim mt-1.5">
+            هذا مفتاح عميل يتصل بهذه البوابة — لا علاقة له بمفاتيح المزوّدين، وتوليده لا يغيّرها.
+          </p>
           <input
             className="input mt-1.5"
             value={newKeyName}
@@ -277,10 +341,11 @@ export function EndpointBanner({ onToast }: { onToast: (msg: string, type?: 'inf
 
       {ask && (
         <ConfirmDialog
-          title={ask.kind === 'regen' ? `إعادة توليد المفتاح "${ask.name}"؟` : `حذف المفتاح "${ask.name}"؟`}
+          title={ask.kind === 'regen' ? `إعادة توليد مفتاح العميل "${ask.name}"؟` : `حذف مفتاح العميل "${ask.name}"؟`}
           message={ask.kind === 'regen'
             ? 'القيمة القديمة تبطل مباشرة — كل أداة تستخدمها يجب أن تحدّثها.'
             : 'الأدوات التي تستخدمه ستتوقف عن العمل فوراً.'}
+          detail="مفاتيح المزوّدين (Dahl، Ollama…) لا تتأثر بهذا الإجراء."
           confirmLabel={ask.kind === 'regen' ? 'أعد التوليد' : 'حذف'}
           danger
           onCancel={() => setAsk(null)}

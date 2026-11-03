@@ -6,7 +6,7 @@ import {
   CheckCircle2, Loader2, Clock, KeySquare
 } from 'lucide-react';
 import { api, type ProviderKeyInfo } from '../lib/api';
-import { cn } from '../lib/utils';
+import { cn, PROVIDER_KEYS_LABEL } from '../lib/utils';
 import { ConfirmDialog } from './ui';
 
 const STATUS_META: Record<string, { label: string; cls: string; icon: any }> = {
@@ -96,10 +96,13 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <KeyRound className="w-5 h-5 text-primary" />
-              مفاتيح: <code className="font-mono text-sm">{providerName || providerId}</code>
+              {PROVIDER_KEYS_LABEL}: <code className="font-mono text-sm">{providerName || providerId}</code>
             </h2>
             <p className="text-xs text-ink-dim mt-0.5">
               عدة مفاتيح لنفس المصدر = سعة أكبر. عند نفاد حصة مفتاح ينتقل النظام للتالي تلقائياً.
+            </p>
+            <p className="text-[11px] text-ink-muted mt-1">
+              هذه مفاتيح تُصادِق هذه البوابة مع المزوّد — لا تُشارَك مع أدواتك، ولا علاقة لها بالمفاتيح الموحّدة.
             </p>
           </div>
           <button onClick={onClose} className="btn btn-sm btn-ghost p-1.5 text-ink-muted hover:text-ink" aria-label="إغلاق">
@@ -226,8 +229,9 @@ export function KeysModal({ providerId, providerName, onClose, onToast }: {
 
       {askDelete && (
         <ConfirmDialog
-          title={`حذف المفتاح "${askDelete.label}"؟`}
+          title={`حذف مفتاح المزوّد "${askDelete.label}"؟`}
           message="لا يمكن التراجع."
+          detail={`مفتاح مزوّد واحد يُحذف نهائياً — لا يتأثر مزوّد آخر ولا مفاتيح العملاء. زر «تعطيل» يوقف استعماله بلا فقدانه.`}
           confirmLabel="حذف نهائي"
           danger
           onCancel={() => setAskDelete(null)}

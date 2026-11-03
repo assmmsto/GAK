@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Sparkles, Send, Loader2, MessageSquare, User, Bot, Cpu, Hash, Copy, Check, Plug } from 'lucide-react';
-import { api, storedUiKey } from '../lib/api';
+import { api, ensureUiKey, storedUiKey } from '../lib/api';
 import { cn } from '../lib/utils';
 
 const QUICK_PROMPTS = [
@@ -13,7 +13,18 @@ const QUICK_PROMPTS = [
 ];
 
 export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'info' | 'success' | 'error') => void }) {
-  const { data: modelsData } = useQuery({ queryKey: ['models'], queryFn: () => api.models(), refetchInterval: 10000 });
+  // قائمة النماذج تحتاج مفتاح عميل في الترويسة. المتصفح الجديد (أو الذي مُسح
+  // تخزينه) لا يملك مفتاحاً، فكانت /v1/models ترد 401 والقائمة تُعرض فارغة
+  // بلا تفسير — نُنشئ مفتاح الواجهة هنا مرة واحدة عند فتح التبويب.
+  const { data: modelsData, error: modelsError, isLoading: modelsLoading } = useQuery({
+    queryKey: ['models'],
+    queryFn: async () => {
+      await ensureUiKey();
+      return api.models();
+    },
+    refetchInterval: 10000,
+    retry: 1
+  });
   const models = modelsData?.data || [];
   const [model, setModel] = useState('auto');
   const [system, setSystem] = useState('أنت مساعد مفيد ومختصر.');
@@ -56,6 +67,7 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
     const t0 = Date.now();
     try {
       let acc = '';
+      let thought = ''; // نماذج التفكير تُرسل thinking في delta.reasoning
       let sseBuffer = ''; // مخزن مؤقت للأسطر المقطوعة بين الـ chunks
       setMessages(m => [...m, { role: 'assistant', content: '' }]);
       const sub: { requested?: string; actual?: string; providerId?: string } = {};
@@ -80,6 +92,15 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
               setMessages(m => {
                 const next = [...m];
                 next[next.length - 1] = { role: 'assistant', content: acc };
+                return next;
+              });
+            } else if (parsed.choices?.[0]?.delta?.reasoning) {
+              // النموذج يفكّر بلا نص ظاهر — نعرض التفكير بدل فقاعة فارغة
+              thought += parsed.choices[0].delta.reasoning;
+              setMessages(m => {
+                const next = [...m];
+                const last = next[next.length - 1];
+                if (!last.content) next[next.length - 1] = { role: 'assistant', content: '…يفكّر: ' + thought.slice(-280) };
                 return next;
               });
             }
@@ -138,6 +159,11 @@ export function PlaygroundTab({ onToast }: { onToast?: (msg: string, type?: 'inf
               ))}
             </optgroup>
           </select>
+          {(modelsError || (!modelsLoading && models.length === 0)) && (
+            <span className="text-[11px] text-warn shrink-0" title={modelsError ? String((modelsError as Error).message) : 'لا نماذج'}>
+              {modelsError ? 'تعذّر جلب النماذج' : 'لا نماذج مسجّلة'}
+            </span>
+          )}
         </div>
         <input
           className="input !py-1.5 font-mono text-xs w-52"

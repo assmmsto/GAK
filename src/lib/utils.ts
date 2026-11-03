@@ -33,3 +33,23 @@ export function formatNumber(n?: number | null): string {
 export function cn(...args: (string | false | null | undefined)[]): string {
   return args.filter(Boolean).join(' ');
 }
+
+/**
+ * تسمية «N مفاتيح» بصيغة العدد العربي الصحيحة (1 مفتاح، 2 مفتاحان، 3–10 مفاتيح، 11+ مفتاحاً).
+ * كانت الصيغة الحرفية `${n} مفاتيح` تُنتج «1 مفاتيح» و«2 مفاتيح».
+ */
+export function keyCountLabel(n: number): string {
+  if (n === 0) return 'لا مفاتيح';
+  if (n === 1) return 'مفتاح واحد';
+  if (n === 2) return 'مفتاحان';
+  const mod = n % 100;
+  if (mod >= 3 && mod <= 10) return `${n} مفاتيح`;
+  return `${n} مفتاحاً`;
+}
+
+/**
+ * مفاتيح المزوّدين والمفاتيح الموحّدة عالمَان مختلفان تماماً، وكان المستخدم يخلط
+ * بينهما فيحذف مفاتيح العملاء ظناً أنها مفاتيح المزوّد. تلزم كل شاشة بتسمية نوعها.
+ */
+export const PROVIDER_KEYS_LABEL = 'مفاتيح المزوّد';
+export const CLIENT_KEYS_LABEL = 'المفاتيح الموحّدة';

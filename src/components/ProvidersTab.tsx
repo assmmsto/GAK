@@ -7,7 +7,7 @@ import { StatusDot, TierBadge, ConfirmDialog } from './ui';
 import { AddProviderModal } from './AddProviderModal';
 import { KeysModal } from './KeysModal';
 import { ImportModal } from './ImportModal';
-import { timeAgo, cn } from '../lib/utils';
+import { timeAgo, cn, keyCountLabel, PROVIDER_KEYS_LABEL } from '../lib/utils';
 
 export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info' | 'success' | 'error') => void }) {
   const qc = useQueryClient();
@@ -89,7 +89,10 @@ export function ProvidersTab({ onToast }: { onToast: (msg: string, type?: 'info'
             <span className="badge">{providers.length}</span>
             <span className="badge badge-success">{enabledCount} مُفعّل</span>
           </h2>
-          <p className="text-xs text-ink-dim mt-0.5">أضف نقاط نهاية متوافقة مع OpenAI ووجّه الطلبات عبرها</p>
+          <p className="text-xs text-ink-dim mt-0.5">
+            أضف نقاط نهاية متوافقة مع OpenAI ووجّه الطلبات عبرها — مفاتيح المزوّدين تُدار من بطاقة كل مزوّد،
+            وهي منفصلة عن المفاتيح الموحّدة في الأعلى.
+          </p>
         </div>
         <div className="flex gap-2">
           <button className="btn" onClick={testAll}>
@@ -205,7 +208,7 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
             <>
               <span className="text-ink-dim">·</span>
               <span className={cn(keyAvailable > 0 ? 'text-ink-muted' : 'text-warn')}>
-                {keyCount === 1 ? 'مفتاح واحد' : `${keyCount} مفاتيح`}
+                {keyCountLabel(keyCount)}
                 {keyCount > 1 ? ` (${keyAvailable} متاح)` : ''}
               </span>
             </>
@@ -226,7 +229,8 @@ function ProviderCard({ provider: p, onTest, testing, onDelete, onToggle, onEdit
         <button
           className="btn btn-sm"
           onClick={onKeys}
-          title="إدارة المفاتيح — عدة مفاتيح لنفس المصدر = سعة أكبر مع تدوير تلقائي"
+          aria-label={`${PROVIDER_KEYS_LABEL} لـ ${p.id}`}
+          title="مفاتيح هذا المزوّد — عدة مفاتيح لنفس المصدر = سعة أكبر مع تدوير تلقائي (لا علاقة لها بمفاتيح العملاء في الأعلى)"
         >
           <KeySquare className="w-3 h-3" />
           {keyCount > 0 && <span className={cn('text-[10px] font-bold tabular-nums', keyAvailable === 0 && 'text-warn')}>{keyCount}</span>}

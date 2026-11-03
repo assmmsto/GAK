@@ -67,13 +67,13 @@ check('العنوان AI Gateway', (await page.locator('h1').first().textContent
 check('شارة الاتصال', (await page.locator('text=/^(يعمل|مزوّد متعطّل \\d+\\/\\d+|لا مزوّد متاح|لا مزوّدين)$/').count()) > 0);
 check('بطاقة المزوّدين', (await page.locator('text=المزوّدون').count()) > 0);
 check('بطاقة الطلبات (24 ساعة)', (await page.locator('text=الطلبات (24 ساعة)').count()) > 0);
-check('شريط نقطة النهاية الموحّدة ظاهر', await page.locator('text=نقطة النهاية الموحّدة').first().isVisible());
+check('شريط المفاتيح الموحّدة ظاهر', await page.locator('text=المفاتيح الموحّدة').first().isVisible());
 for (const tip of ['أي مفتاح ميت؟', 'المزامنة والتدوير التلقائي', 'إدارة مزوّدي الذكاء الاصطناعي', 'اللي يشتغل مقابل المرفوض', 'استهلاك التوكنات', 'أحدث الأحداث', 'اختبار المحادثة']) {
   check('تبويب موجود: ' + tip, await page.locator(`nav button[data-tooltip="${tip}"]`).count() === 1);
 }
 
 // ============ 1) EndpointBanner — كل الأزرار ============
-group('نقطة النهاية الموحّدة — كل الأزرار');
+group('المفاتيح الموحّدة — كل الأزرار');
 await page.locator('button[title="انسخ العنوان"]').click();
 await page.waitForTimeout(400);
 check('زر نسخ URL يعمل (حصيلة الحافظة)', (await page.evaluate(() => navigator.clipboard.readText().catch(() => ''))).includes('/v1'));
@@ -93,7 +93,7 @@ if (uiKeyReal) {
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 }
-await page.locator('blockquote, .card').filter({ hasText: 'نقطة النهاية الموحّدة' }).locator('button', { hasText: 'نسخ' }).first().click().catch(() => {});
+await page.locator('blockquote, .card').filter({ hasText: 'المفاتيح الموحّدة' }).locator('button', { hasText: 'نسخ' }).first().click().catch(() => {});
 await page.waitForTimeout(200);
 // خطّ الأساس لإجراءات الواجهة التدميرية — بعد إنشاء مفتاح التركيب أعلاه، وإلا
 // حُسب إنشاؤه ضمن فرق الواجهة فظهر +2 بدل +1.
@@ -139,9 +139,9 @@ check('زر افحص الكل ظاهر', await page.locator('button', { hasText:
 check('زر استيراد جماعي ظاهر', await page.locator('button', { hasText: 'استيراد جماعي' }).first().isVisible());
 check('زر أضف مزوّداً ظاهر', await page.locator('button', { hasText: 'أضف مزوّداً' }).first().isVisible());
 
-// بطاقة المزود تحديداً: التي تحوي زر إدارة المفاتيح — لا بطاقة «أحدث حدث» العلوية
+// بطاقة المزود تحديداً: التي تحوي زر مفاتيح المزوّد — لا بطاقة «أحدث حدث» العلوية
 // (كلتاهما .card وتحويان كلمة dahl بعد أول حدث health.ok)
-const card = page.locator('.card').filter({ has: page.locator('button[title^="إدارة المفاتيح"]') }).first();
+const card = page.locator('.card').filter({ has: page.locator('button[title^="مفاتيح هذا المزوّد"]') }).first();
 // Test على البطاقة: النتيجة تصل كـtoast بصيغة «dahl: ✓ Nms» (ليست داخل البطاقة)
 await card.locator('button', { hasText: /^افحص$/ }).first().click();
 let testResultShown = false;
@@ -152,27 +152,33 @@ for (let i = 0; i < 30 && !testResultShown; i++) {
 check('زر «افحص» على البطاقة يعطي نتيجة (toast ✓/✗)', testResultShown);
 
 // نافذة المفاتيح
-await card.locator('button[title^="إدارة المفاتيح"]').first().click();
+await card.locator('button[title^="مفاتيح هذا المزوّد"]').first().click();
 await page.waitForTimeout(800);
 check('نافذة المفاتيح تفتح وتظهر المفاتيح', (await page.locator('text=المفاتيح المحفوظة').count()) > 0);
 check('ملخص النوافذ (الإجمالي/متاحة) ظاهر', (await page.locator('text=متاحة').count()) > 0);
 
 if (DANGER) {
-  // اختيار مفتاح غير موجود في القاعدة: اللصق المكرّر لا يزيد العدد (سلوك صحيح)،
-  // فاختبار «أُضيف» يحتاج مفتاحاً جديداً فعلاً.
-  const savedKeys = (await j('/api/providers/dahl/keys')).keys;
-  const beforeKeys = savedKeys.length;
-  // دليل الاستبعاد: عدد المفاتيح المحفوظة مقابل مفاتيح التركيبات. إن كان
-  // المحفوظ أقل فالأمر مجرّد اختيار مفتاح غير محفوظ — والقيمة لا تُقارن
-  // بالنص المقنّع لأن hint لا يحمل المفتاح كاملاً.
-  const pasted = KEYS_FOR_PASTE[Math.min(beforeKeys, KEYS_FOR_PASTE.length - 1)] || K1;
-  check('مفتاح اللصق متاح للاختبار', Boolean(pasted && pasted !== 'dahl_PLACEHOLDER_NO_FIXTURE'));
+  const savedLen = (await j('/api/providers/dahl/keys')).keys.length;
+  // الاستبعاد الموعود في مقدّمة الملف: احذف من مجموعة اللصق كل مفتاح محفوظ فعلاً.
+  // لا يصل من الخادم إلا hint مقنّع (gw_…/آخر 4) ولا يحمل المفتاح كاملاً، فلا
+  // مقارنة قيمة-بقيمة ممكنة. والتركيبات (data/.testkeys.json → dahl) هي عينُ
+  // المفاتيح المزروعة في القاعدة؛ فإن بلغ عدد المحفوظ عددَ التركيبات فالمجموعة
+  // كلها مكرّرة ⇒ لا يوجد مفتاح «جديد» نلصقه بصدق.
+  // الحل: قيمة اصطناعية لا تُطابق أي مزوّد حقيقي. إضافتها تختبر مسار اللصق
+  // (parse → dedupe → insert) بلا لمس مفاتيح حقيقية، وحذفها فوراً يعيد العدّاد.
+  if (savedLen >= KEYS_FOR_PASTE.length) {
+    console.log(`SKIP  مفتاح اللصق (المحفوظ ${savedLen} ≥ التركيبات ${KEYS_FOR_PASTE.length} — كلها مكرّرة)`);
+    KEYS_FOR_PASTE = [];
+  }
+  // القيمة الاصطناعية تُسجَّل ثم تُحذف في نفس الكتلة — لا تبقى في القاعدة.
+  const pasted = 'dahl_pwtestfake' + Date.now().toString(36) + 'x'.repeat(16);
+  check('مفتاح اللصق متاح للاختبار', pasted.length > 24);
   await page.locator('textarea[placeholder*="AIza"]').fill(pasted + '\n');
   await page.locator('input[placeholder^="تسمية اختيارية"]').fill('pw-added');
   await page.locator('button', { hasText: /^إضافة/ }).last().click();
   await page.waitForTimeout(1500);
   const afterKeys = (await j('/api/providers/dahl/keys')).keys.length;
-  check('لصق مفتاح في النافذة → أُضيف', afterKeys === beforeKeys + 1, `${beforeKeys}→${afterKeys}`);
+  check('لصق مفتاح في النافذة → أُضيف', afterKeys === savedLen + 1, `${savedLen}→${afterKeys}`);
   // حذف المفتاح المُضاف (تدميري) — الزر يفتح ConfirmDialog، فالتأكيد خطوة لازمة.
   const row = page.locator('.rounded-lg', { hasText: 'pw-added' }).first();
   await row.locator('button[title="حذف نهائي"]').click();
@@ -182,7 +188,7 @@ if (DANGER) {
   await confirmBtn.click();
   await page.waitForTimeout(1500);
   const finalKeys = (await j('/api/providers/dahl/keys')).keys.length;
-  check('حذف المفتاح من النافذة → رجع العدد', finalKeys === beforeKeys, `${finalKeys}`);
+  check('حذف المفتاح من النافذة → رجع العدد', finalKeys === savedLen, `${finalKeys}`);
 }
 await page.locator('button[aria-label="إغلاق"]').first().click();
 await page.waitForTimeout(400);

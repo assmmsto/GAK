@@ -484,6 +484,8 @@ app.post('/v1/embeddings', async (req, res) => {
   for (const pid of router.reachableProviderIds()) {
     const entry = router.getProvider(pid);
     if (!entry) continue;
+    // مزود محلي بلا اعتماد لا يخدم تضمينات — لا نرسل له طلباً محكوماً بالفشل
+    if (router.isKeylessProvider(pid)) continue;
     for (const slot of router.availableKeySlots(entry)) {
       const out = await slot.client.embeddings({ model: body.model, input: body.input });
       if (out.ok) {
@@ -657,10 +659,16 @@ app.post('/api/keys', async (req, res) => {
 app.delete('/api/keys/:id', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  // الاسم والبصمة قبل الحذف: الصف يُمحى ولا يبقى منه إلا ما نسجّله هنا.
+  // بدونه كان السجل يقول `{"id":44}` فقط، فلا يمكن معرفة أي أداة تكسّرت.
+  const before = (await db.listApiKeys()).find(k => Number(k.id) === id);
   await db.deleteApiKey(id);
   const keys = await db.listApiKeys();
   keysExistCache = keys.length > 0; keysCacheTs = Date.now();
-  await db.logEvent('key.deleted', { status: 'success', meta: { id } });
+  await db.logEvent('key.deleted', {
+    status: 'success',
+    meta: { id, name: before?.name ?? null, hint: before?.key ?? null }
+  });
   res.json({ ok: true });
 });
 
@@ -675,7 +683,7 @@ app.post('/api/keys/:id/regenerate', async (req, res) => {
     await db.deleteApiKey(id);
     const fresh = await db.createApiKey(old.name as string);
     keysExistCache = true; keysCacheTs = Date.now();
-    await db.logEvent('key.regenerated', { status: 'success', meta: { id, name: old.name } });
+    await db.logEvent('key.regenerated', { status: 'success', meta: { id, name: old.name, hint: old.key ?? null } });
     res.json(fresh);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
@@ -1804,7 +1812,9 @@ app.patch('/api/providers/:id', async (req, res) => {
         await db.addProviderKey(id, body.apiKey, updated.apiKeyEnv || deriveEnvName(id));
         keyAction = 'set';
       }
-      updated.apiKeyEnv = updated.apiKeyEnv || deriveEnvName(id);
+      // مزود بلا اعتماد (apiKeyEnv: null صراحةً) يبقى كذلك: كان هذا السطر يفرض
+      // اسم متغيّر بيئة عليه فيفقد علامة «لا يحتاج مفتاحاً» ويُخفى من قائمة النماذج.
+      if (updated.apiKeyEnv !== null) updated.apiKeyEnv = updated.apiKeyEnv || deriveEnvName(id);
       delete updated.apiKey; // لا نخزّن المفتاح نصاً صريحاً في YAML
     }
 

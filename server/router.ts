@@ -767,11 +767,22 @@ export class Router {
     try { return await e.provider.listModels(); } catch { return []; }
   }
 
-  // مزودات يمكن مخاطبتها فعلاً (لتفادي مخاطبة مزودات ميتة)
+  // مزودات يمكن مخاطبتها فعلاً (لتفادي مخاطبة مزودات ميتة).
+  // يكفي مفتاح متاح واحد، أو **مفتاح فارغ** واحد: مزود محلي (Ollama) لا يحتاج
+  // سرّاً، وكان يستبعد هنا فيختفي من /v1/models و/qwen لا يُوجَّه إليه إلا من
+  // خلال صف مفتاح وهمي في القاعدة. حالة المفتاح لكن لا قيمة له → صالح للاتصال.
   reachableProviderIds(): string[] {
     return [...this.providers.entries()]
       .filter(([, e]) => e.enabled !== false && Array.isArray(e.keys) && e.keys.some(k => k.enabled))
       .map(([id]) => id);
+  }
+
+  // هل المزود يعمل بلا اعتماد (مفتاح فارغ معرَّف)؟ نستخدمه لتمييز «بلا مفتاح»
+  // المشروع عن «مفتاح مفقود» الذي يعني مزوداً معطّلاً فعلاً.
+  isKeylessProvider(pid: string): boolean {
+    const e = this.providers.get(pid);
+    if (!e || !Array.isArray(e.keys) || !e.keys.length) return false;
+    return e.keys.every((k: any) => !k.key);
   }
 
   // نمرّر حزم البث كما هي ونقرأ usage منها (ندعم stream_options.include_usage)
