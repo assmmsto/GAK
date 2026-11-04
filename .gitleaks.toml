@@ -1,0 +1,24 @@
+# gitleaks configuration — https://github.com/gitleaks/gitleaks
+#
+# The default rule set stays fully in force; the exclusions below are the two places
+# where a credential-shaped string is expected and provably not a credential.
+[extend]
+useDefault = true
+
+# The env template lists variable *names* with empty values. Its whole purpose is to be
+# committed, and a real key there would be a bug caught in review — but the file is
+# scanned nowhere else, so excluding it is what stops `VAULT_TOKEN=` failing every run.
+[[allowlists]]
+description = "Environment template: variable names only, never values"
+paths = [
+  '''^\.env\.example$''',
+]
+
+# Deliberately fake fixtures in the test suite (sk-rot-AAAA…, gsk_supersecret…).
+# They are asserted on by name; a real key never has this shape.
+[[allowlists]]
+description = "Fake keys used by the offline test suite"
+regexes = [
+  '''sk-(rot|manual|plain|updated|test)-[A-Za-z0-9-]{6,}''',
+  '''(gsk_|sk-or-v1-)supersecret[A-Za-z0-9]+''',
+]
