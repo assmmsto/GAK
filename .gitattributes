@@ -1,0 +1,17 @@
+# Normalize line endings: LF in the repository, on every platform.
+* text=auto eol=lf
+
+# Binary assets — never diffed, never normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+
+# Keep GitHub's language stats honest.
+package-lock.json linguist-generated=true
+public/fonts/* linguist-vendored=true
+docs/screenshots/* linguist-documentation=true

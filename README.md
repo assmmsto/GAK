@@ -1,9 +1,26 @@
 # GAK — Production AI Gateway
 
+[![CI](https://github.com/assmmsto/GAK/actions/workflows/ci.yml/badge.svg)](https://github.com/assmmsto/GAK/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
+
 **GAK** (Generate API Key) is a unified multi-provider AI gateway with a real-time web
 dashboard, streaming chat, and automatic failover. One endpoint, one key for every tool.
 
-![GAK dashboard](docs/screenshots/dashboard.png)
+> [!WARNING]
+> **First public release (v1.0) — expect bugs.** GAK is young software: the HTTP surface, the
+> database schema and the dashboard may change without a migration path. Run it on a network
+> you trust, keep a backup of `data/`, and read the [Disclaimer](#disclaimer) before you point
+> production traffic at it.
+
+<img src="docs/screenshots/dashboard.png" alt="GAK dashboard" width="100%">
+
+<div align="center">
+
+**[Features](#features) · [Quick Start](#quick-start) · [Configuration](#configuration) · [API Usage](#api-usage) · [Architecture](#architecture)**
+
+</div>
 
 ## Features
 
@@ -25,8 +42,9 @@ dashboard, streaming chat, and automatic failover. One endpoint, one key for eve
 ## Quick Start
 
 ```bash
-# 1. Install
-cd ai-gateway-web-v2
+# 1. Clone and install
+git clone https://github.com/assmmsto/GAK.git
+cd GAK
 npm install
 
 # 2. Add API keys (optional — gateway works with keyless providers too)
@@ -43,6 +61,9 @@ npm run dev
 ```
 
 The API server runs on `:3001`, the web UI on `:5173` (proxies `/api` and `/ws` to backend).
+
+> **Ready for production?** `npm run build && npm start` serves the built UI from the same
+> port — see [RUN-GUIDE.md](RUN-GUIDE.md).
 
 ## Configuration
 
@@ -105,20 +126,26 @@ never mix.
 
 | Tab | What it is for |
 |---|---|
+| **Health** | The one question that matters at 3 a.m.: *is any key dead?* Provider reachability, success rate and the last event, live. |
+| **Agents** | The self-running supervisor: key sync from Vault/Doppler/1Password, rotation, circuit breakers and the audit trail. |
 | **Providers** | Add, edit, enable/disable and test providers. API keys are written **encrypted to the database** (`data/gateway.db`). |
 | **Model sort** | The single question: *which models actually work?* Sends a real chat call to each model, lists them in one flat filterable table, and automatically blocks the dead ones from routing. |
 | **Usage** | Token consumption per provider (last 24h). |
 | **Logs** | Live event stream (chat, health, provider changes). |
-| **Playground** | Streaming chat to test any model, with quick-connect details. |
+| **Chat test** | Streaming chat to test any model, with quick-connect details. |
 
 <p align="center">
+  <img src="docs/screenshots/tab-health.png" width="49%" alt="Health tab">
   <img src="docs/screenshots/tab-providers.png" width="49%" alt="Providers tab">
-  <img src="docs/screenshots/tab-usage.png" width="49%" alt="Usage tab">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/tab-playground.png" width="49%" alt="Playground tab">
-  <img src="docs/screenshots/mobile.png" width="24%" alt="Dashboard on a phone">
+  <img src="docs/screenshots/tab-usage.png" width="49%" alt="Usage tab">
+  <img src="docs/screenshots/tab-playground.png" width="49%" alt="Chat test tab">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/mobile.png" width="26%" alt="Dashboard on a phone">
 </p>
 
 Regenerate these with the server running: `node scripts/screenshot.mjs`.
@@ -293,7 +320,7 @@ once the data is clean — and it logs how many rows it moved, so an upgrade nee
 
 ## Bulk import
 
-Open **Providers → استيراد جماعي** and paste. Any of these formats work:
+Open **Providers → Bulk import** (`استيراد جماعي`) and paste. Any of these formats work:
 
 ```
 AIzaSy…                 ← key alone: the provider is detected from the prefix
@@ -302,7 +329,7 @@ openrouter: sk-or-v1-…  ← provider: key
 {"provider":"deepseek","key":"sk-…"}
 ```
 
-Use **معاينة** (dry run) first — it shows what each line resolves to and flags the ones needing
+Use **Preview** (`معاينة`, dry run) first — it shows what each line resolves to and flags the ones needing
 attention, without writing anything.
 
 Only **enabled** providers that have a key (or are keyless) take part in routing. Models the probe
@@ -310,7 +337,7 @@ rejected are hidden from `/v1/models` and skipped during routing, so a dead mode
 
 ## Saving tokens
 
-**Usage → تخفيف استهلاك الرموز**:
+**Usage → Token saving** (`تخفيف استهلاك الرموز`):
 
 | Setting | What it does |
 |---|---|
@@ -322,52 +349,53 @@ rejected are hidden from `/v1/models` and skipped during routing, so a dead mode
 Settings are persisted in the database. Trimming never touches the last three tool outputs, so the
 recent context stays intact.
 
-## الوكلاء (إشراف ذاتي التشغيل)
+## Agents (self-running supervision)
 
-الخادم يراقب نفسه ويصلح نفسه: يجلب المفاتيح من مصادرها، يدوّرها، يعزل ما مات —
-ويسجّل **كل** تغيير في سجل تدقيق. قراراته مكتوبة كقواعد محدَّدة، لا استدلال.
+The server watches itself and repairs itself: it pulls keys from their sources, rotates them,
+isolates the ones that died — and records **every** change in an audit log. Its decisions are
+written as explicit rules, not inference.
 
-### هرمية المصادر (الأصغر يفوز)
+### Source hierarchy (the lower number wins)
 
-| الأولوية | المصدر | التهيئة |
+| Priority | Source | Configure with |
 |---|---|---|
 | 10 | HashiCorp Vault (KV v2) | `VAULT_ADDR` + `VAULT_TOKEN` |
 | 20 | Doppler | `DOPPLER_TOKEN` |
 | 30 | 1Password Connect | `OP_CONNECT_HOST` + `OP_CONNECT_TOKEN` + `OP_VAULT_ID` + `OP_ITEM_ID` |
-| 40 | ملف محلي | `data/secrets.json` — `{"groq":"gsk_...","openrouter":["sk-or-a","sk-or-b"]}` |
-| 50 | متغيّرات `.env` | أي `*_API_KEY` (يُقرأ من قائمة الكتالوج) |
-| 90 | مفتاح يدوي من الواجهة | **لا تمسّه المزامنة إطلاقاً** |
+| 40 | Local file | `data/secrets.json` — `{"groq":"gsk_...","openrouter":["sk-or-a","sk-or-b"]}` |
+| 50 | `.env` variables | any `*_API_KEY` (resolved against the catalog) |
+| 90 | Manual key from the dashboard | **never touched by sync** |
 
-### ثلاث قواعد لا تُخترق
-1. **لا حذف تلقائي أبداً** — المفتاح المسحوب يُعطَّل ويُسجَّل، والاسترجاع سطر واحد.
-2. **المفتاح اليدوي مقدّس** — لا تسحبه المزامنة ولا تعطّله.
-3. **فشل مصدر لا يسحب شيئاً** — انقطاع Vault في السحابة لا يُطفئ مفاتيح الإنتاج.
+### Three rules that are never broken
+1. **No automatic deletion, ever** — a withdrawn key is disabled and logged; restoring it is one line.
+2. **A manual key is sacred** — sync neither withdraws nor disables it.
+3. **A failed source withdraws nothing** — a Vault outage in the cloud does not switch off production keys.
 
-كل مفتاح له **قاطع دائرة**: `closed` (يعمل) · `open` (معطّل بسبب مكتوب) ·
-`half-open` (انتهت المهلة، يُجرَّب). والعزل يتصاعد أسّياً حتى 15 دقيقة.
+Every key has a **circuit breaker**: `closed` (working) · `open` (disabled, with a written reason) ·
+`half-open` (timeout elapsed, being retried). Isolation backs off exponentially up to 15 minutes.
 
-### المسارات (محمية بـ`ADMIN_TOKEN`، ولا تُعيد أي سرّ)
+### Routes (protected by `ADMIN_TOKEN`, never return a secret)
 
-| المسار | الوظيفة |
+| Route | Purpose |
 |---|---|
-| `GET /api/agents/status` | حالة المشرف + دوائر المفاتيح + كل المصادر وحالاتها |
-| `POST /api/agents/sync` | مزامنة فورية (نفس دورة الخمس دقائق) |
-| `POST /api/agents/rotate` | دورة تدوير فورية |
-| `GET /api/agents/keys` | دوائر المفاتيح تفصيلاً (بصمات فقط) |
-| `GET /api/agents/audit` | سجل التدقيق: من غيّر ماذا ومتى ولماذا |
+| `GET /api/agents/status` | Supervisor state + key circuits + every source and its status |
+| `POST /api/agents/sync` | Immediate sync (the same five-minute cycle) |
+| `POST /api/agents/rotate` | Immediate rotation cycle |
+| `GET /api/agents/keys` | Key circuits in detail (fingerprints only) |
+| `GET /api/agents/audit` | Audit trail: who changed what, when, and why |
 
-### الإعداد
+### Configuration
 ```bash
-# فعّل مصدراً واحداً على الأقل (الباقي يُتجاهل تلقائياً)
+# Enable at least one source (the rest are skipped automatically)
 echo "VAULT_ADDR=https://vault.internal:8200" >> .env
 echo "VAULT_TOKEN=..." >> .env
 
-AGENTS_ENABLED=0          # تعطيل كامل للوكلاء (فحص يدوي فقط)
-AGENT_SYNC_INTERVAL_MS=300000   # كل 5 دقائق
+AGENTS_ENABLED=0          # disable the agents entirely (manual checks only)
+AGENT_SYNC_INTERVAL_MS=300000   # every five minutes
 ```
 
-> كل التوكنات تُقرأ من البيئة، ولا تُطبع ولا تُسجَّل. المصادر غير المُهيَّأة
-> لا تُستدعى ولا تُحسب فشلاً — يظهر تقريرها `configured: false`.
+> Every token is read from the environment and is never printed or logged. A source that is not
+> configured is neither called nor counted as a failure — its report shows `configured: false`.
 
 ---
 
@@ -394,6 +422,33 @@ AGENT_SYNC_INTERVAL_MS=300000   # كل 5 دقائق
 Tier is a **priority, not a price**: lower is tried first (1 = highest priority, 4 = free safety
 net). Disabled providers stay visible in the dashboard — add the key to `.env`, then switch them
 on with the power button.
+
+## Disclaimer
+
+This is the **first public release** of GAK (v1.0). It is tested against the flows in `tests/`,
+but it has not been security-audited and it has not been run at scale. Expect rough edges, and
+treat every release as a candidate rather than a finished product.
+
+The software is provided **"as is", without warranty of any kind**, express or implied, including
+but not limited to the warranties of merchantability, fitness for a particular purpose and
+non-infringement. In no event shall the authors or copyright holders be liable for any claim,
+damages or other liability, whether in an action of contract, tort or otherwise, arising from,
+out of or in connection with the software or the use or other dealings in the software. See
+[LICENSE](LICENSE).
+
+By running GAK you accept that:
+
+- **Your keys are your responsibility.** Provider credentials live in `data/gateway.db`, encrypted
+  with `data/.credkey`. Lose that pair and you lose the keys; leak it and you leak them. Back both
+  up, and never commit either.
+- **Your traffic is your responsibility.** Routing, retries and provider terms of service are yours
+  to honour. GAK grants you no rights to any provider's API.
+- **Upstream providers are not affiliated with this project.** Their availability, pricing and
+  policies are outside its control, and a provider may change or close an endpoint at any time.
+- **Measurements are best-effort.** Probe verdicts, token counts and failover behaviour are
+  operational signals, not billing-grade accounting.
+- **Do not expose it to the open internet** without `ADMIN_TOKEN`, TLS and a reverse proxy — see
+  [SECURITY.md](SECURITY.md).
 
 ## License
 
