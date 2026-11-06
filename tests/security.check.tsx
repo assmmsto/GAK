@@ -271,6 +271,41 @@ check('لا فرع "افتح" باقى', !/keysExistCache\s*===\s*false\)\s*retu
 check('الغياب يرفض بـ503 صريح', /gateway_misconfigured/.test(indexSrc));
 
 // ============================================================
+// 9) لا مفتاح كامل يغادر الخادم — لا للمزوّد ولا للعميل
+// ============================================================
+// السؤال الذي بُني عليه هذا الحارس: «هل يرى مستخدمٌ مفتاحَ آخر؟» الجواب لا،
+// لأن القيمة الكاملة لا تُغادر الخادم أصلاً: الواجهة تستقبل قناعاً، وقائمة
+// مفاتيح العملاء تستقبل بصمة، والملفات المتعقَّبة لا تحمل مفتاحاً.
+group('لا مفتاح كامل يغادر الخادم');
+
+const routerSrc = read('server/router.ts');
+const dbSrc = read('server/db.ts');
+const cfgSrc = read('server/config.ts');
+
+check('keyDetails يعرض masked لا القيمة', /masked:\s*maskKey\(s\.key\)/.test(routerSrc));
+check('keyDetails لا يُرجع s.key خاماً', !/\bkey:\s*s\.key\b/.test(routerSrc));
+check('snapshot يعيد ملخّص أعداد لا مفاتيح', /keys:\s*this\.keySummary\(e\)/.test(routerSrc));
+check('/api/providers مبني على snapshot', /app\.get\('\/api\/providers'[^\n]*router\.snapshot\(\)/.test(indexSrc));
+
+// القناع نفسه: يقصّ ولا يعيد النص، حتى للمفاتيح القصيرة
+for (const [name, src] of [['router', routerSrc], ['config', cfgSrc]] as const) {
+  const at = src.indexOf('function maskKey');
+  const fn = at === -1 ? '' : src.slice(at, at + 320);
+  check(`maskKey في ${name} يقصّ ولا يعيد النص الكامل`, fn.length > 0 && /slice\(/.test(fn) && !/return\s+k\s*;/.test(fn));
+}
+
+// مفاتيح العملاء: تُخزَّن hash، والقائمة تعيد بصمة
+check('قائمة مفاتيح العملاء تعيد key_hint فقط', /COALESCE\(key_hint/.test(dbSrc));
+check('إنشاء مفتاح عميل يخزّن sha256 لا النص', /INSERT INTO api_keys[\s\S]{0,160}sha256Hex\(key\)/.test(dbSrc));
+
+// لا مفتاح في YAML: لا إضافة، لا استيراد، لا تعديل
+const entryBlock = indexSrc.slice(indexSrc.indexOf('const entry: any = {'), indexSrc.indexOf('yaml.providers.push(entry)'));
+check('كائن المزوّد المُضاف لا يحمل apiKey', entryBlock.length > 0 && !/apiKey\s*:/.test(entryBlock));
+const newEntryBlock = indexSrc.slice(indexSrc.indexOf('const newEntry: any = {'), indexSrc.indexOf('yaml.providers.push(newEntry)'));
+check('الاستيراد الجماعي لا يحمل apiKey', newEntryBlock.length > 0 && !/apiKey\s*:/.test(newEntryBlock));
+check('تعديل مزوّد يحذف apiKey قبل الكتابة', /delete updated\.apiKey/.test(indexSrc));
+
+// ============================================================
 console.log('\n' + '='.repeat(46));
 console.log(`نتيجة الحراسة: ${passed} نجاح / ${failures.length} فشل`);
 if (failures.length) {
