@@ -1,15 +1,12 @@
-providers:
-  - id: dahl
-    name: Dahl Inference
-    baseUrl: https://inference.dahl.global/v1
-    apiKeyEnv: DAHL_API_KEY
-    format: openai
-    tier: 1
-    enabled: true
-    models:
-      - MiniMaxAI/MiniMax-M2.7
-      - zai-org/GLM-5.3-Flash
-      - deepseek-ai/DeepSeek-V4-Flash-0731
+# المزوّدات المُفعَّلة — هذا الملف هو الحالة الوحيدة، ولا يحمل أي مفتاح.
+#
+# المستودع يُشحن **فارغاً عمداً**: لا مزوّدين، ولا مفاتيح، ولا بيانات تشغيل.
+# أضف مزوّداً من الواجهة (المزوّدون ← إضافة) أو من الكتالوج `server/catalog.yaml`
+# (38 إعداداً جاهزاً)، وسيُكتب هنا تلقائياً.
+#
+# المفاتيح نفسها لا تُكتب هنا أبداً — مكانها `data/gateway.db` مشفّرة.
+providers: []
+
 routing:
   maxRetries: 3
   timeoutMs: 180000

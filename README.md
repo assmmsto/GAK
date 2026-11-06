@@ -26,7 +26,7 @@ dashboard, streaming chat, and automatic failover. One endpoint, one key for eve
 
 - **OpenAI-compatible API** at `/v1/chat/completions`
 - **Anthropic-compatible API** at `/v1/messages` (works with Claude Code and the Anthropic SDK)
-- **38 ready presets** in the catalog (`server/catalog.yaml`) — one click in the dashboard adds any of them; whatever you enable lives in `server/providers.yaml`, and this checkout ships with exactly one (`dahl`)
+- **38 ready presets** in the catalog (`server/catalog.yaml`) — one click in the dashboard adds any of them; whatever you enable lives in `server/providers.yaml`, and **this checkout ships with none** — no providers, no keys, no runtime data
 - **One key for everything** — point any OpenAI-compatible tool at one URL
 - **Multiple keys per provider** — paste ten keys for one source and the gateway rotates them: a
   quota-exhausted key is isolated on its own and the next one is tried instantly, all silently
@@ -170,7 +170,7 @@ npm run test:decrypt # verifies stored keys decrypt with the local credential ke
 ```
 
 > **Browser/API batteries with a real provider** — the live-chat and probe checks read test keys
-> from `data/.testkeys.json` (`{"dahl": ["…"]}`, gitignored — never commit real keys). Without it,
+> from `data/.testkeys.json` (`{"groq": ["…"]}`, gitignored — never commit real keys). Without it,
 > those checks are skipped honestly and everything else still runs.
 
 `tests/ui.e2e.tsx` renders the real components in jsdom and drives them against the live API — it
@@ -399,29 +399,25 @@ AGENT_SYNC_INTERVAL_MS=300000   # every five minutes
 
 ---
 
-## Providers Included
+## Providers — and what is (not) in this repository
 
-| ID | Tier | Auth | Enabled by default |
-|---|---|---|---|
-| apmix | 4 | `APMIX_API_KEY` | yes |
-| bluesminds | 4 | `BLUESMINDS_API_KEY` | yes |
-| pollinations | 4 | keyless | yes |
-| groq | 4 | `GROQ_API_KEY` | no |
-| deepseek | 3 | `DEEPSEEK_API_KEY` | no |
-| openrouter | 2 | `OPENROUTER_API_KEY` | no |
-| zai | 3 | `ZAI_API_KEY` | no |
-| google-ai | 3 | `GEMINI_API_KEY` | no |
-| ollama | 1 | none (local) | no |
-| mistral | 4 | `MISTRAL_API_KEY` | no |
-| together | 4 | `TOGETHER_API_KEY` | no |
-| cohere | 4 | `COHERE_API_KEY` | no |
-| fireworks | 4 | `FIREWORKS_API_KEY` | no |
-| cerebras | 4 | `CEREBRAS_API_KEY` | no |
-| chutes | 4 | `CHUTES_API_KEY` | no |
+A fresh clone is **empty by design**: no providers, no keys, no usage history, no settings.
+`server/providers.yaml` ships as `providers: []`, and `data/` ships with a single `.gitkeep`.
+
+| Path | What lives there | In the repo? |
+|---|---|---|
+| `server/catalog.yaml` | 38 presets you can add (id, base URL, env-var name) | yes — names only, no secrets |
+| `server/providers.yaml` | the providers **you** enable | yes — starts empty |
+| `data/gateway.db` | your provider keys, usage, events, settings | **no** — gitignored |
+| `data/.credkey` | the key that decrypts that database | **no** — gitignored |
+| `.env` | deployment settings (`ADMIN_TOKEN`, `HOST`, `PORT`) | **no** — gitignored |
+
+Adding a provider is two steps: pick it from the catalog (or paste a base URL), then paste a key.
+The key is encrypted into `data/gateway.db`; it is never written to `providers.yaml`, to `.env`,
+or to any file that Git tracks.
 
 Tier is a **priority, not a price**: lower is tried first (1 = highest priority, 4 = free safety
-net). Disabled providers stay visible in the dashboard — add the key to `.env`, then switch them
-on with the power button.
+net). A provider with no usable key stays off until you give it one.
 
 ## Disclaimer
 
