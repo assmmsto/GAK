@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GAK — مفتاح واحد لكل نماذج الذكاء الاصطناعي</title>
+<meta name="description" content="بوابة ذكاء اصطناعي مفتوحة المصدر تعمل على جهازك: عنوان واحد متوافق مع OpenAI وAnthropic، مفاتيح متعددة لكل مزوّد، تبديل تلقائي عند الفشل، وفحص حقيقي للنماذج." />
+<meta name="theme-color" content="#08090d" />
+<meta name="color-scheme" content="dark" />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="ar_AR" />
+<meta property="og:site_name" content="GAK" />
+<meta property="og:title" content="GAK — مفتاح واحد. كل النماذج." />
+<meta property="og:description" content="بوابة واحدة تجمع مزوّدي الذكاء الاصطناعي خلف عنوان متوافق مع OpenAI وAnthropic. تدوير مفاتيح، تبديل تلقائي، وفحص نماذج — على جهازك." />
+<meta property="og:image" content="assets/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="GAK — مفتاح واحد. كل النماذج." />
+<meta name="twitter:description" content="بوابة ذكاء اصطناعي مفتوحة المصدر: عنوان واحد، مفاتيح متعددة، تبديل تلقائي." />
+<meta name="twitter:image" content="assets/og.png" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preload" href="assets/fonts/plex-400.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="assets/fonts/plex-700.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="styles.css" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "GAK",
+  "alternateName": "Generate API Key",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux, macOS, Windows",
+  "description": "بوابة ذكاء اصطناعي موحّدة متوافقة مع OpenAI وAnthropic، بتدوير مفاتيح وتبديل تلقائي وفحص نماذج.",
+  "license": "https://opensource.org/licenses/MIT",
+  "codeRepository": "https://github.com/assmmsto/GAK",
+  "softwareVersion": "1.0.1",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">تجاوز إلى المحتوى</a>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.2 2 4.6 13.6h6.1L10 22l8.9-11.9h-6.2L13.2 2Z" fill="currentColor"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" d="M12 .5C5.73.5.9 5.33.9 11.6c0 4.9 3.17 9.05 7.57 10.52.55.1.75-.24.75-.53v-2.06c-3.08.67-3.73-1.3-3.73-1.3-.5-1.28-1.23-1.62-1.23-1.62-1-.68.08-.67.08-.67 1.1.08 1.68 1.13 1.68 1.13.98 1.68 2.57 1.2 3.2.92.1-.71.38-1.2.7-1.47-2.46-.28-5.05-1.23-5.05-5.47 0-1.21.43-2.2 1.13-2.98-.11-.28-.49-1.4.11-2.92 0 0 .93-.3 3.05 1.14a10.6 10.6 0 0 1 5.56 0c2.12-1.44 3.05-1.14 3.05-1.14.6 1.52.22 2.64.11 2.92.7.78 1.13 1.77 1.13 2.98 0 4.25-2.6 5.19-5.07 5.46.4.35.75 1.02.75 2.06v3.05c0 .3.2.64.76.53 4.4-1.47 7.56-5.62 7.56-10.52C23.1 5.33 18.27.5 12 .5Z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 5-7 7 7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v6c0 4.4 3.2 7.6 7.5 9 4.3-1.4 7.5-4.6 7.5-9V6L12 3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8m-3 0h3v3"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 17 9 5 9-5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 15v2"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.5 3.8 5.6 3.8 9S14.5 18.5 12 21c-2.5-2.5-3.8-5.6-3.8-9S9.5 5.5 12 3Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 4.3 2.6 17.6A2 2 0 0 0 4.3 20.6h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3Z"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+</svg>
+
+<header class="site-header" id="header">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top" aria-label="GAK — الصفحة الرئيسية">
+      <span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"/></svg></span>
+      <span>
+        <span class="brand-name">GAK</span>
+        <span class="brand-tag">بوابة الذكاء الاصطناعي</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="التنقل الرئيسي">
+      <a href="#features">المزايا</a>
+      <a href="#how">كيف يعمل</a>
+      <a href="#providers">المزوّدون</a>
+      <a href="#security">الأمان</a>
+      <a href="#faq">الأسئلة</a>
+    </nav>
+    <div class="header-actions">
+      <a class="gh-link" href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-github"/></svg>
+        <span>GitHub</span>
+      </a>
+      <a class="btn btn-primary" href="#quickstart">ابدأ الآن</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="القائمة">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-menu"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+</header>
+
+<div class="mobile-nav" id="mobileNav">
+  <a href="#features">المزايا <span aria-hidden="true">←</span></a>
+  <a href="#how">كيف يعمل <span aria-hidden="true">←</span></a>
+  <a href="#providers">المزوّدون <span aria-hidden="true">←</span></a>
+  <a href="#security">الأمان <span aria-hidden="true">←</span></a>
+  <a href="#quickstart">التشغيل <span aria-hidden="true">←</span></a>
+  <a href="#faq">الأسئلة <span aria-hidden="true">←</span></a>
+  <a class="btn btn-primary" href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-github"/></svg>
+    استعرض الكود
+  </a>
+</div>
+
+<main id="main">
+  <span id="top"></span>
+
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="hero-badge">
+            <span class="tag">v1.0.1</span>
+            <span class="sep"></span>
+            <span>مفتوح المصدر · MIT</span>
+          </div>
+          <h1>
+            <span class="line">مفتاح واحد.</span>
+            <span class="line grad">كل النماذج.</span>
+          </h1>
+          <p class="hero-lead">
+            بوابة واحدة تجمع مزوّديك خلف عنوان متوافق مع <b>OpenAI</b> و<b>Anthropic</b>.
+            تدوير المفاتيح، وفحص النماذج، والتبديل عند الفشل — تلقائياً، وعلى جهازك.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary" href="#quickstart">
+              شغّله في دقيقة
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-arrow"/></svg>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-github"/></svg>
+              الكود على GitHub
+            </a>
+          </div>
+          <div class="hero-meta">
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>Node ≥ 20</span>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>بلا حساب سحابي</span>
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>بياناتك لا تغادر جهازك</span>
+          </div>
+        </div>
+
+        <div class="hero-visual">
+          <div class="console" id="console" aria-label="مثال حيّ على توجيه الطلب والتبديل بين المفاتيح">
+            <div class="console-bar">
+              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="console-url">localhost:3001/v1</span>
+              <span class="live"><i aria-hidden="true"></i>LIVE</span>
+              <button class="replay" id="replay" type="button" aria-label="إعادة تشغيل العرض">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"/></svg>
+              </button>
+            </div>
+            <div class="console-body">
+              <div class="req-line" data-seq="req">
+                <span class="verb">POST</span>
+                <span class="req-path">/chat/completions</span>
+                <span class="req-time">14:02:11</span>
+              </div>
+              <pre class="req-json" data-seq="json">{ <span class="k">"model"</span>: <span class="s">"auto"</span>, <span class="k">"stream"</span>: <span class="s">true</span> }</pre>
+              <div class="flow">
+                <div class="attempt" data-step="1">
+                  <span class="rail" aria-hidden="true"><span class="dot"></span></span>
+                  <span class="who"><span class="prov">groq</span><span class="model">llama-3.3-70b</span><span class="key">key #1</span></span>
+                  <span class="status">429 · parked 5m</span>
+                </div>
+                <div class="attempt" data-step="2">
+                  <span class="rail" aria-hidden="true"><span class="dot"></span></span>
+                  <span class="who"><span class="prov">groq</span><span class="model">llama-3.3-70b</span><span class="key">key #2</span></span>
+                  <span class="status">200 · 412 ms</span>
+                </div>
+              </div>
+              <div class="console-result" data-seq="result">
+                <span class="ok-pill">200 OK</span>
+                <span class="meta">stream · <b>groq</b> · 412 ms</span>
+              </div>
+            </div>
+            <div class="console-foot" aria-hidden="true">
+              <span><i></i>failover: key → provider</span>
+              <span><i></i>retries: 3</span>
+              <span><i></i>timeout: 180s</span>
+            </div>
+          </div>
+          <p class="hero-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>
+            <span>429 يحجز المفتاح وحده — الطلب يكمل على المفتاح التالي، بلا فشل ظاهر.</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="trust">
+    <div class="wrap trust-inner">
+      <span class="trust-label">يعمل مع أدواتك كما هي</span>
+      <div class="trust-list">
+        <span class="trust-chip">Claude Code</span>
+        <span class="trust-chip">Cursor</span>
+        <span class="trust-chip">Cline</span>
+        <span class="trust-chip">Continue</span>
+        <span class="trust-chip">Open WebUI</span>
+        <span class="trust-chip">LibreChat</span>
+        <span class="trust-chip">LangChain</span>
+        <span class="trust-chip">OpenAI SDK</span>
+        <span class="trust-chip">n8n</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-band">
+    <div class="wrap">
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-num"><span data-count="38">38</span></div>
+          <div class="stat-lbl">مزوّداً في الكتالوج، جاهز بضغطة</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num"><span data-count="2">2</span></div>
+          <div class="stat-lbl">بروتوكولان: OpenAI&nbsp;+&nbsp;Anthropic</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num"><span data-count="1">1</span></div>
+          <div class="stat-lbl">عنوان واحد لكل الأدوات</div>
+        </div>
+        <div class="stat">
+          <div class="stat-num"><span data-count="286">286</span></div>
+          <div class="stat-lbl">اختباراً في حزمة المشروع</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PROBLEM ================= -->
+  <section class="section" id="problem">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">01</span><span class="bar"></span>المشكلة</p>
+        <h2 class="h2">ثلاثة مفاتيح، ثلاث لوحات،<br />وثلاث طرق للفشل.</h2>
+        <p class="lead">
+          كل مزوّد جديد يعني مفتاحاً جديداً، وحصة جديدة، وسطراً جديداً في كل أداة.
+          وحين تنتهي الحصة أو يسقط المزوّد، يتوقف عملك — لا لأن النموذج توقف، بل لأن التوجيه لم يكن جاهزاً.
+        </p>
+      </div>
+
+      <div class="pain-grid">
+        <article class="pain" data-reveal style="--d:0ms">
+          <span class="num">01</span>
+          <h3>مفاتيح مبعثرة</h3>
+          <p>كل أداة تحمل مفتاحاً خاصاً. تدوير مفتاح واحد يعني تعديل عشرة ملفات إعداد، ونسيان واحد يعني عطلاً صامتاً.</p>
+        </article>
+        <article class="pain" data-reveal style="--d:80ms">
+          <span class="num">02</span>
+          <h3>حصص تنتهي في منتصف العمل</h3>
+          <p>الحد المجاني ينفد، فيُحجب المفتاح — وتبقى أنت تنتظر عودة الحصة أو تصلح الأمر يدوياً.</p>
+        </article>
+        <article class="pain" data-reveal style="--d:160ms">
+          <span class="num">03</span>
+          <h3>مزوّد يسقط بلا إنذار</h3>
+          <p>خطأ 502 في منتصف مهمة، وسجل لا يقول أي مفتاح فشل، ولا أي نموذج، ولا إلى أين ذهب الطلب.</p>
+        </article>
+      </div>
+
+      <div class="shift" data-reveal>
+        <div class="shift-col">
+          <div class="shift-title"><span class="tag">BEFORE</span> قبل GAK</div>
+          <ul class="shift-list">
+            <li><svg class="x" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg>عنوان ومفتاح لكل مزوّد، في كل أداة</li>
+            <li><svg class="x" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg>فشل المفتاح = توقف الطلب</li>
+            <li><svg class="x" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg>نماذج ميتة تُجرَّب مرة بعد مرة</li>
+            <li><svg class="x" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg>استهلاك بلا قياس لكل مفتاح</li>
+          </ul>
+        </div>
+        <div class="shift-col after">
+          <div class="shift-title"><span class="tag">AFTER</span> مع GAK</div>
+          <ul class="shift-list">
+            <li><svg class="v" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>عنوان واحد ومفتاح GAK واحد</li>
+            <li><svg class="v" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>عزل المفتاح، ثم تبديل المزوّد</li>
+            <li><svg class="v" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>المرفوض محجوب 24 ساعة</li>
+            <li><svg class="v" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>قياس لكل مفتاح ونموذج ومزوّد</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FEATURES ================= -->
+  <section class="section section--soft" id="features">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">02</span><span class="bar"></span>المزايا</p>
+        <h2 class="h2">ما تفعله البوابة فعلياً —<br /><span class="soft">لا ما تقوله صفحة تعريفية.</span></h2>
+        <p class="lead">كل ميزة هنا مبنية على سلوك يمكنك اختباره: أوقف مفتاحاً، أنهِ حصة، أو أضف نموذجاً ميتاً — وراقب ما يحدث.</p>
+      </div>
+
+      <div class="bento">
+        <article class="card card--7" data-reveal>
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-terminal"/></svg></span>
+          <h3>عنوان واحد. بروتوكولان.</h3>
+          <p>نقطة نهاية متوافقة مع <b>OpenAI</b> وأخرى مع <b>Anthropic</b>، وثالثة للتضمينات. أي أداة تعمل بتغيير <b>base_url</b> فقط — دون تعديل كود.</p>
+          <div class="visual mini-code" dir="ltr">
+            <div class="row"><span class="m">POST</span><span class="p">/v1/chat/completions</span><span class="note">OpenAI</span></div>
+            <div class="row"><span class="m">POST</span><span class="p">/v1/messages</span><span class="note">Anthropic</span></div>
+            <div class="row"><span class="m">POST</span><span class="p">/v1/embeddings</span><span class="note">Embeddings</span></div>
+          </div>
+        </article>
+
+        <article class="card card--5" data-reveal style="--d:70ms">
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-key"/></svg></span>
+          <h3>مفاتيح متعددة لكل مزوّد</h3>
+          <p>الصق عشرة مفاتيح لمصدر واحد. كل مفتاح صفٌّ مستقل بحصته وحالته — عشرة أضعاف الحصة، بلا تدخل يدوي.</p>
+          <div class="visual key-list" dir="ltr">
+            <div class="key-row"><span class="d"></span><span class="id">groq · key #1</span><span class="st">ok</span></div>
+            <div class="key-row warn"><span class="d"></span><span class="id">groq · key #2</span><span class="st">429 · parked</span></div>
+            <div class="key-row"><span class="d"></span><span class="id">groq · key #3</span><span class="st">ok</span></div>
+          </div>
+        </article>
+
+        <article class="card card--4" data-reveal>
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-shield"/></svg></span>
+          <h3>تبديل تلقائي على مستويين</h3>
+          <p>مفتاح ← مزوّد. لا تُعلن البوابة الفشل قبل استنفاد كل المفاتيح، ثم كل المزوّدين المؤهّلين بترتيب الأولوية.</p>
+          <div class="visual flow-mini" dir="ltr">
+            <div class="fl"><b>request</b><span class="arr">→</span><span class="bad">key #1 ✕</span></div>
+            <div class="fl"><b>retry</b><span class="arr">→</span><span class="good">key #2 ✓</span></div>
+            <div class="fl"><b>fallback</b><span class="arr">→</span><span class="good">provider #2 ✓</span></div>
+          </div>
+        </article>
+
+        <article class="card card--4" data-reveal style="--d:70ms">
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cpu"/></svg></span>
+          <h3>فحص نماذج بنداء حقيقي</h3>
+          <p>نداء محادثة فعلي لكل نموذج، وست حالات دقيقة. المرفوض يُحجب عن التوجيه 24 ساعة ثم يُعاد فحصه تلقائياً.</p>
+          <div class="visual states" dir="ltr">
+            <span class="state ok"><i></i>ok</span>
+            <span class="state rej"><i></i>rejected</span>
+            <span class="state warn"><i></i>rate_limited</span>
+            <span class="state"><i></i>provider_auth</span>
+            <span class="state"><i></i>slow</span>
+            <span class="state"><i></i>no_key</span>
+          </div>
+        </article>
+
+        <article class="card card--4" data-reveal style="--d:140ms">
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-zap"/></svg></span>
+          <h3>توفير الرموز</h3>
+          <p>ذاكرة ردود، وقصّ لمخرجات الأدوات، ونافذة سياق، وسقف <b>max_tokens</b> — كلها إعدادات تُحفظ في القاعدة.</p>
+          <div class="visual meters" dir="ltr">
+            <div class="meter"><span>cache</span><span class="bar"><span style="width:92%"></span></span><span class="val">0 tok</span></div>
+            <div class="meter"><span>tool trim</span><span class="bar"><span style="width:78%"></span></span><span class="val">78%</span></div>
+            <div class="meter"><span>context</span><span class="bar"><span style="width:45%"></span></span><span class="val">12 msg</span></div>
+          </div>
+        </article>
+
+        <article class="card card--6" data-reveal>
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-activity"/></svg></span>
+          <h3>مراقبة حيّة عبر WebSocket</h3>
+          <p>صحة المزوّدين، نسبة النجاح، آخر حدث، والاستهلاك — مباشرة. السؤال الوحيد الساعة الثالثة صباحاً: أي مفتاح ميت؟</p>
+          <div class="visual">
+            <svg class="spark" viewBox="0 0 260 54" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="sparkGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0" stop-color="#6d7bd6"/><stop offset="1" stop-color="#4f9fcf"/>
+                </linearGradient>
+                <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#6d7bd6" stop-opacity=".35"/><stop offset="1" stop-color="#6d7bd6" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path class="area" d="M0 44 26 40 52 42 78 30 104 34 130 22 156 26 182 14 208 18 234 8 260 12V54H0Z"/>
+              <path class="line" d="M0 44 26 40 52 42 78 30 104 34 130 22 156 26 182 14 208 18 234 8 260 12"/>
+            </svg>
+            <div class="mon-stats" dir="ltr">
+              <div><b>99.2%</b>success</div>
+              <div><b>412ms</b>p95</div>
+              <div><b>12/14</b>keys ok</div>
+              <div><b>24h</b>window</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card card--6" data-reveal style="--d:70ms">
+          <span class="card-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg></span>
+          <h3>وكلاء يديرون أنفسهم</h3>
+          <p>مزامنة المفاتيح من Vault أو Doppler أو 1Password، تدوير، قواطع دائرة، وسجل تدقيق. لا حذف تلقائي، والمفتاح اليدوي لا يُمَس.</p>
+          <div class="visual sources" dir="ltr">
+            <div class="source-row"><span class="pr">10</span><span class="nm">Vault</span><span class="st">synced</span></div>
+            <div class="source-row"><span class="pr">20</span><span class="nm">Doppler</span><span class="st">synced</span></div>
+            <div class="source-row"><span class="pr">40</span><span class="nm">secrets.json</span><span class="st muted">idle</span></div>
+            <div class="source-row"><span class="pr">90</span><span class="nm">manual</span><span class="st">sacred</span></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="also" data-reveal>
+        <span class="lbl">وأيضاً</span>
+        <span>tool calling</span>
+        <span>vision</span>
+        <span>streaming</span>
+        <span>bulk import</span>
+        <span>per-key stats</span>
+        <span>SPA fallback</span>
+        <span>mobile UI</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HOW ================= -->
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">03</span><span class="bar"></span>كيف يعمل</p>
+        <h2 class="h2">من الصفر إلى أول طلب<br />في ثلاث خطوات.</h2>
+        <p class="lead">لا حساب، لا بطاقة، لا خدمة سحابية. تستطيع تجربته بمزوّد بلا مفتاح، ثم تضيف مفاتيحك متى شئت.</p>
+      </div>
+
+      <div class="steps">
+        <div class="step" data-reveal>
+          <span class="step-num">01</span>
+          <h3>أضف مفاتيحك</h3>
+          <p>الصق مفتاحاً أو عشرة. البوابة تكتشف المزوّد من بادئة المفتاح، وتتحقق قبل الكتابة — مع معاينة كاملة.</p>
+        </div>
+        <div class="step" data-reveal style="--d:80ms">
+          <span class="step-num">02</span>
+          <h3>ولّد مفتاح GAK واحداً</h3>
+          <p>مفتاح <code>gw_…</code> يُعرض مرة واحدة ويُخزَّن كبصمة SHA-256. هو كل ما تحتاجه أدواتك.</p>
+        </div>
+        <div class="step" data-reveal style="--d:160ms">
+          <span class="step-num">03</span>
+          <h3>وجّه أدواتك</h3>
+          <p>غيّر العنوان إلى <code>localhost:3001/v1</code>. الباقي كما هو — الاختيار والتدوير والتبديل يتولاه الموجّه.</p>
+        </div>
+      </div>
+
+      <div class="arch" data-reveal aria-label="مخطط البنية">
+        <div class="arch-col">
+          <div class="arch-label"><i></i>أدواتك</div>
+          <span class="arch-chip">Claude Code</span>
+          <span class="arch-chip">Cursor</span>
+          <span class="arch-chip">OpenAI SDK</span>
+          <span class="arch-chip">Open WebUI</span>
+        </div>
+        <div class="arch-link" aria-hidden="true">
+          <span class="line"></span>
+          <span>HTTPS · /v1</span>
+        </div>
+        <div class="arch-core">
+          <div class="top"><span class="name">GAK</span><span class="pill">GATEWAY</span></div>
+          <div class="mod"><span class="d"></span>Router<span class="m">failover</span></div>
+          <div class="mod"><span class="d"></span>Key pool<span class="m">per-key state</span></div>
+          <div class="mod"><span class="d"></span>Probe<span class="m">6 states</span></div>
+          <div class="mod"><span class="d"></span>Cache + trim<span class="m">token save</span></div>
+          <div class="mod"><span class="d"></span>SQLite<span class="m">local</span></div>
+        </div>
+        <div class="arch-link" aria-hidden="true">
+          <span class="line"></span>
+          <span>tier 1 → 4</span>
+        </div>
+        <div class="arch-col">
+          <div class="arch-label"><i></i>المزوّدون</div>
+          <span class="arch-chip">DeepSeek</span>
+          <span class="arch-chip">Groq</span>
+          <span class="arch-chip">OpenRouter</span>
+          <span class="arch-chip">Google AI</span>
+          <span class="arch-chip">Ollama</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CODE ================= -->
+  <section class="section section--soft" id="api">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">04</span><span class="bar"></span>الاستخدام</p>
+        <h2 class="h2">غيّر عنواناً واحداً.<br /><span class="soft">لا شيء آخر.</span></h2>
+        <p class="lead">نفس صيغة الطلب التي تعرفها. البوابة تختار المزوّد، تدوّر المفتاح، وتعيد البث كما هو.</p>
+      </div>
+
+      <div class="code-card" data-reveal>
+        <div class="code-head">
+          <div class="tabs" role="tablist" aria-label="أمثلة الاستخدام">
+            <button class="tab" role="tab" id="tab-curl" aria-controls="panel-curl" aria-selected="true" type="button">cURL</button>
+            <button class="tab" role="tab" id="tab-openai" aria-controls="panel-openai" aria-selected="false" type="button">OpenAI SDK</button>
+            <button class="tab" role="tab" id="tab-anthropic" aria-controls="panel-anthropic" aria-selected="false" type="button">Anthropic SDK</button>
+            <button class="tab" role="tab" id="tab-claude" aria-controls="panel-claude" aria-selected="false" type="button">Claude Code</button>
+          </div>
+          <span class="file" id="codeFile">terminal</span>
+          <button class="copy" type="button" data-copy="panel-curl" id="copyCode">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>
+            <span>نسخ</span>
+          </button>
+        </div>
+        <div class="code-body">
+          <div class="code-panel is-active" id="panel-curl" role="tabpanel" aria-labelledby="tab-curl">
+<pre><code><span class="tok-k">curl</span> http://localhost:3001/v1/chat/completions \
+  -H <span class="tok-s">"Authorization: Bearer gw_your_key"</span> \
+  -H <span class="tok-s">"Content-Type: application/json"</span> \
+  -d <span class="tok-s">'{
+    "model": "auto",
+    "messages": [{ "role": "user", "content": "مرحباً" }],
+    "stream": true
+  }'</span></code></pre>
+          </div>
+          <div class="code-panel" id="panel-openai" role="tabpanel" aria-labelledby="tab-openai">
+<pre><code><span class="tok-k">from</span> openai <span class="tok-k">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="tok-s">"http://localhost:3001/v1"</span>,
+    api_key=<span class="tok-s">"gw_your_key"</span>,
+)
+
+stream = client.chat.completions.create(
+    model=<span class="tok-s">"auto"</span>,
+    messages=[{<span class="tok-s">"role"</span>: <span class="tok-s">"user"</span>, <span class="tok-s">"content"</span>: <span class="tok-s">"مرحباً"</span>}],
+    stream=<span class="tok-n">True</span>,
+)
+
+<span class="tok-k">for</span> chunk <span class="tok-k">in</span> stream:
+    <span class="tok-f">print</span>(chunk.choices[<span class="tok-n">0</span>].delta.content <span class="tok-k">or</span> <span class="tok-s">""</span>, end=<span class="tok-s">""</span>)</code></pre>
+          </div>
+          <div class="code-panel" id="panel-anthropic" role="tabpanel" aria-labelledby="tab-anthropic">
+<pre><code><span class="tok-k">from</span> anthropic <span class="tok-k">import</span> Anthropic
+
+client = Anthropic(
+    base_url=<span class="tok-s">"http://localhost:3001"</span>,
+    api_key=<span class="tok-s">"gw_your_key"</span>,
+)
+
+message = client.messages.create(
+    model=<span class="tok-s">"auto"</span>,
+    max_tokens=<span class="tok-n">512</span>,
+    messages=[{<span class="tok-s">"role"</span>: <span class="tok-s">"user"</span>, <span class="tok-s">"content"</span>: <span class="tok-s">"مرحباً"</span>}],
+)
+
+<span class="tok-f">print</span>(message.content[<span class="tok-n">0</span>].text)</code></pre>
+          </div>
+          <div class="code-panel" id="panel-claude" role="tabpanel" aria-labelledby="tab-claude">
+<pre><code><span class="tok-c"># وجّه Claude Code إلى البوابة</span>
+<span class="tok-k">export</span> ANTHROPIC_BASE_URL=http://localhost:3001
+<span class="tok-k">export</span> ANTHROPIC_AUTH_TOKEN=gw_your_key
+
+claude</code></pre>
+          </div>
+        </div>
+        <div class="code-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-info"/></svg>
+          <span>مفتاح <code>gw_your_key</code> يُنشأ من شريط GAK في اللوحة ويُعرض مرة واحدة. المفتاح نفسه يصل إلى كل المزوّدين المفعّلين.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= DASHBOARD ================= -->
+  <section class="section" id="dashboard">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">05</span><span class="bar"></span>اللوحة</p>
+        <h2 class="h2">سبع تبويبات.<br />سؤال واحد لكل تبويب.</h2>
+        <p class="lead">واجهة عربية بالكامل، مبنية حول القرار لا حول البيانات. كل بطاقة تقودك إلى الإجراء التالي.</p>
+      </div>
+
+      <div class="dash-grid">
+        <div class="frame" data-reveal>
+          <div class="frame-bar">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="url">localhost:3001</span>
+          </div>
+          <a class="shot-link" id="dashLink" href="assets/shots/overview.png" target="_blank" rel="noopener" aria-label="افتح لقطة اللوحة بالحجم الكامل" title="افتح بالحجم الكامل">
+            <img class="shot" id="dashShot" src="assets/shots/overview.png" width="2880" height="1800" alt="لوحة GAK — المزوّدون ومفاتيح GAK والحالة" loading="eager" />
+          </a>
+        </div>
+
+        <div>
+          <div class="dash-tabs" role="tablist" aria-label="تبويبات اللوحة" data-reveal>
+            <button class="dash-tab" type="button" role="tab" aria-selected="true"
+              data-shot="assets/shots/overview.png" data-alt="لوحة GAK — نظرة عامة"
+              data-caption="لوحة واحدة: المزوّدون، مفاتيح GAK، آخر الأحداث، والاستهلاك — تتحدث مباشرة عبر WebSocket.">
+              <span class="t"><i></i>نظرة عامة</span>
+              <span class="d">المزوّدون والمفاتيح والحالة في شاشة واحدة.</span>
+            </button>
+            <button class="dash-tab" type="button" role="tab" aria-selected="false"
+              data-shot="assets/shots/health.png" data-alt="تبويب الحالة في GAK"
+              data-caption="بطاقات KPI قابلة للنقر: المزوّدون المتاحون، نسبة النجاح، الطلبات، ومدة التشغيل — بلا أرقام تجميلية.">
+              <span class="t"><i></i>الحالة</span>
+              <span class="d">أي مفتاح ميت؟ صحة المزوّدين ونسبة النجاح.</span>
+            </button>
+            <button class="dash-tab" type="button" role="tab" aria-selected="false"
+              data-shot="assets/shots/providers.png" data-alt="تبويب المزوّدين في GAK"
+              data-caption="لكل مزوّد مفتاحه وحالته وطرازه. المفاتيح تُكتب مشفّرة في القاعدة — لا في ملف نصي ولا في .env.">
+              <span class="t"><i></i>المزوّدون</span>
+              <span class="d">أضف، عدّل، اختبر، وشغّل — بضغطة.</span>
+            </button>
+            <button class="dash-tab" type="button" role="tab" aria-selected="false"
+              data-shot="assets/shots/usage.png" data-alt="تبويب الاستهلاك في GAK"
+              data-caption="الاستهلاك لكل مزوّد آخر 24 ساعة، وإعدادات توفير الرموز في التبويب نفسه — القرار بجانب رقمه.">
+              <span class="t"><i></i>الاستهلاك</span>
+              <span class="d">الرموز لكل مزوّد + إعدادات التوفير.</span>
+            </button>
+            <button class="dash-tab" type="button" role="tab" aria-selected="false"
+              data-shot="assets/shots/playground.png" data-alt="تبويب اختبار محادثة في GAK"
+              data-caption="محادثة streaming حقيقية مع أي نموذج، وتفاصيل الاتصال السريع جاهزة للنسخ إلى أداتك.">
+              <span class="t"><i></i>اختبار محادثة</span>
+              <span class="d">streaming حقيقي لأي نموذج، مع تفاصيل الاتصال.</span>
+            </button>
+          </div>
+          <p class="dash-caption" id="dashCaption" aria-live="polite">لوحة واحدة: المزوّدون، مفاتيح GAK، آخر الأحداث، والاستهلاك — تتحدث مباشرة عبر WebSocket.</p>
+        </div>
+      </div>
+
+      <div class="dash-foot" data-reveal>
+        <div class="dash-foot-body">
+          <p><b>نفس اللوحة على الهاتف.</b> RTL كاملة، بلا تطبيق منفصل، وبلا خطوط تُحمَّل من الخارج — افتحها من أي متصفح على شبكتك.</p>
+          <div class="chips">
+            <span>RTL</span>
+            <span>Responsive</span>
+            <span>Keyboard</span>
+            <span>WebSocket</span>
+          </div>
+        </div>
+        <img src="assets/shots/mobile.png" width="1170" height="2532" alt="لوحة GAK على الهاتف" loading="lazy" />
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PROVIDERS ================= -->
+  <section class="section section--soft" id="providers">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">06</span><span class="bar"></span>الكتالوج</p>
+        <h2 class="h2">38 مزوّداً جاهزاً.<br /><span class="soft">واحد منها يكفي للبدء.</span></h2>
+        <p class="lead">معاينة بضغطة تضيف المزوّد إلى <code>providers.yaml</code>. الترتيب أولوية لا سعر: الأقل يُجرَّب أولاً.</p>
+      </div>
+
+      <div class="prov-toolbar" data-reveal>
+        <label class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" id="provSearch" placeholder="ابحث عن مزوّد…" aria-label="البحث في المزوّدين" autocomplete="off" />
+        </label>
+        <div class="filters" role="group" aria-label="تصفية حسب الأولوية">
+          <button class="filter" type="button" data-filter="all" aria-pressed="true">الكل <span class="c">38</span></button>
+          <button class="filter" type="button" data-filter="1" aria-pressed="false">T1 <span class="c">3</span></button>
+          <button class="filter" type="button" data-filter="2" aria-pressed="false">T2 <span class="c">2</span></button>
+          <button class="filter" type="button" data-filter="3" aria-pressed="false">T3 <span class="c">12</span></button>
+          <button class="filter" type="button" data-filter="4" aria-pressed="false">T4 <span class="c">21</span></button>
+        </div>
+        <span class="prov-count" id="provCount">38 / 38</span>
+      </div>
+
+      <div class="prov-grid" id="provGrid">
+        <div class="provider" data-tier="1" data-name="openai"><span class="nm">OpenAI</span><span class="tier t1">T1</span></div>
+        <div class="provider" data-tier="1" data-name="xai grok"><span class="nm">xAI (Grok)</span><span class="tier t1">T1</span></div>
+        <div class="provider" data-tier="1" data-name="ollama local"><span class="nm">Ollama (Local)</span><span class="tier t1">T1</span></div>
+        <div class="provider" data-tier="2" data-name="perplexity"><span class="nm">Perplexity</span><span class="tier">T2</span></div>
+        <div class="provider" data-tier="2" data-name="openrouter"><span class="nm">OpenRouter</span><span class="tier">T2</span></div>
+        <div class="provider" data-tier="3" data-name="deepseek"><span class="nm">DeepSeek</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="zai glm"><span class="nm">Z.AI (GLM)</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="google ai studio gemini"><span class="nm">Google AI Studio</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="moonshot kimi"><span class="nm">Moonshot (Kimi)</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="alibaba dashscope qwen"><span class="nm">Alibaba DashScope</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="zhipu bigmodel"><span class="nm">Zhipu (BigModel)</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="volcengine ark doubao"><span class="nm">Volcengine Ark</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="baidu qianfan"><span class="nm">Baidu Qianfan</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="minimax"><span class="nm">MiniMax</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="stepfun"><span class="nm">StepFun</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="01.ai yi"><span class="nm">01.AI (Yi)</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="3" data-name="github models"><span class="nm">GitHub Models</span><span class="tier">T3</span></div>
+        <div class="provider" data-tier="4" data-name="groq cloud"><span class="nm">Groq Cloud</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="mistral ai"><span class="nm">Mistral AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="together ai"><span class="nm">Together AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="fireworks ai"><span class="nm">Fireworks AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="cerebras"><span class="nm">Cerebras</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="cohere"><span class="nm">Cohere</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="sambanova"><span class="nm">SambaNova</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="siliconflow"><span class="nm">SiliconFlow</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="modelscope"><span class="nm">ModelScope</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="deepinfra"><span class="nm">DeepInfra</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="nvidia nim"><span class="nm">NVIDIA NIM</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="novita ai"><span class="nm">Novita AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="hyperbolic"><span class="nm">Hyperbolic</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="nebius ai studio"><span class="nm">Nebius AI Studio</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="featherless ai"><span class="nm">Featherless AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="chutes ai"><span class="nm">Chutes AI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="pollinations keyless"><span class="nm">Pollinations</span><span class="free">بلا مفتاح</span></div>
+        <div class="provider" data-tier="4" data-name="seekai"><span class="nm">SeekAI</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="xkiro"><span class="nm">XKiro</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="apmix"><span class="nm">apmix</span><span class="tier t4">T4</span></div>
+        <div class="provider" data-tier="4" data-name="bluesminds"><span class="nm">bluesminds</span><span class="tier t4">T4</span></div>
+      </div>
+      <p class="prov-empty" id="provEmpty">لا مزوّد يطابق هذا البحث. جرّب اسماً آخر أو أعد التصفية.</p>
+
+      <div class="prov-legend">
+        <span><i class="d1"></i>T1 أولوية عليا — يُجرَّب أولاً</span>
+        <span><i class="d2"></i>T2</span>
+        <span><i class="d3"></i>T3</span>
+        <span><i class="d4"></i>T4 شبكة أمان</span>
+        <span>الأولوية ليست سعراً.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= SECURITY ================= -->
+  <section class="section" id="security">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">07</span><span class="bar"></span>الأمان</p>
+        <h2 class="h2">مصمّمة لتكون محلية أولاً.<br /><span class="soft">لا سحابة تثق بها بالنيابة عنك.</span></h2>
+        <p class="lead">المفاتيح لا تُكتب في ملفات نصية، ولا تُرسل إلى خدمة وسيطة. كل شيء في قاعدة واحدة على جهازك — ومقفل بما يكفي.</p>
+      </div>
+
+      <div class="sec-grid">
+        <div class="sec-list">
+          <div class="sec-item" data-reveal>
+            <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-db"/></svg></span>
+            <div>
+              <h3>مفاتيح المزوّدين مشفّرة</h3>
+              <p>تُخزَّن في <code>data/gateway.db</code> مشفّرة بمفتاح محلي <code>data/.credkey</code>. النسخة الاحتياطية تحتاج الاثنين معاً.</p>
+            </div>
+          </div>
+          <div class="sec-item" data-reveal style="--d:60ms">
+            <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-key"/></svg></span>
+            <div>
+              <h3>مفاتيح GAK بصمات فقط</h3>
+              <p>مفاتيح <code>gw_…</code> تُخزَّن كبصمة SHA-256 وتُعرض مرة واحدة. تسريب نسخة القاعدة لا يسرّب مفاتيح عملائك.</p>
+            </div>
+          </div>
+          <div class="sec-item" data-reveal style="--d:120ms">
+            <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-lock"/></svg></span>
+            <div>
+              <h3>اللوحة خلف HttpOnly</h3>
+              <p><code>ADMIN_TOKEN</code> يُبادَل بكوكي HttpOnly غير مقروء من JavaScript. لا توكن في <code>localStorage</code> ولا في الرابط بعد المصادقة.</p>
+            </div>
+          </div>
+          <div class="sec-item" data-reveal style="--d:180ms">
+            <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-shield"/></svg></span>
+            <div>
+              <h3>حواجز شبكة صريحة</h3>
+              <p>حارس SSRF يحلّ الأسماء قبل الاتصال، وCSP مُلزِمة، وحدود معدّل لكل مسار. الاستماع محلي افتراضياً، و<code>0.0.0.0</code> يرفض الإقلاع بلا توكن.</p>
+            </div>
+          </div>
+          <div class="sec-item" data-reveal style="--d:240ms">
+            <span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-globe"/></svg></span>
+            <div>
+              <h3>بلا تتبّع ولا حساب</h3>
+              <p>لا قياس عن بعد، ولا تسجيل دخول سحابي، ولا اتصال بأي خدمة غير المزوّدين الذين اخترتهم.</p>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hardening" data-reveal style="--d:120ms">
+          <div class="hardening-head">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-shield"/></svg>
+            قائمة التقوية
+            <span class="tag">DEFAULTS</span>
+          </div>
+          <div class="hardening-body">
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">HOST</span><span class="v">=127.0.0.1</span></div>
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">ADMIN_TOKEN</span><span class="v">=••••••••</span></div>
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">TRUST_PROXY</span><span class="v">=1</span></div>
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">CSP</span><span class="v">default-src 'self'</span></div>
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">RATE_LIMIT_V1</span><span class="v">=300/min</span></div>
+            <div class="hardening-row"><span class="ok">✓</span><span class="k">API_KEY_PREFIX</span><span class="v">=gw_</span></div>
+          </div>
+          <div class="hardening-note">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg>
+            <span>لا تعرض البوابة على الإنترنت بلا TLS وبروكسي عكسي و<code style="font-family:var(--mono);direction:ltr">ADMIN_TOKEN</code>.</span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= QUICK START ================= -->
+  <section class="section section--soft" id="quickstart">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">08</span><span class="bar"></span>التشغيل</p>
+        <h2 class="h2">أربعة أسطر.<br />دقيقة واحدة.</h2>
+        <p class="lead">لا Docker، ولا قاعدة بيانات خارجية، ولا متغيرات بيئة إلزامية. Node ≥ 20 فقط.</p>
+      </div>
+
+      <div class="qs-grid">
+        <div>
+          <div class="qs-steps">
+            <div class="qs-step" data-reveal>
+              <span class="n">1</span>
+              <div>
+                <h3>استنسخ المشروع</h3>
+                <p>المستودع عام ومرخّص MIT. <code>git clone</code> ثم <code>cd</code>.</p>
+              </div>
+            </div>
+            <div class="qs-step" data-reveal style="--d:60ms">
+              <span class="n">2</span>
+              <div>
+                <h3>ثبّت الحزم</h3>
+                <p>لا اعتماد على خدمات خارجية وقت التثبيت سوى npm نفسه.</p>
+              </div>
+            </div>
+            <div class="qs-step" data-reveal style="--d:120ms">
+              <span class="n">3</span>
+              <div>
+                <h3>شغّل الخادم</h3>
+                <p>يقدّم الواجهة والـ API وWebSocket من منفذ واحد: <code>3001</code>.</p>
+              </div>
+            </div>
+            <div class="qs-step" data-reveal style="--d:180ms">
+              <span class="n">4</span>
+              <div>
+                <h3>أضف أول مفتاح</h3>
+                <p>من تبويب المزوّدين، أو ابدأ بمزوّد بلا مفتاح مثل Pollinations.</p>
+              </div>
+            </div>
+          </div>
+          <div class="qs-note" data-reveal>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-info"/></svg>
+            <span>للتطوير مع تحديث لحظي: <code style="font-family:var(--mono);direction:ltr">npm run dev</code> يشغّل Vite على <code style="font-family:var(--mono);direction:ltr">5173</code> والخادم على <code style="font-family:var(--mono);direction:ltr">3001</code>.</span>
+          </div>
+        </div>
+
+        <div class="terminal" data-reveal style="--d:100ms">
+          <div class="terminal-bar">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="title">bash — GAK</span>
+            <button class="copy" type="button" id="copyInstall">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>
+              <span>نسخ</span>
+            </button>
+          </div>
+          <div class="terminal-body" id="installCmd">
+            <div class="ln"><span class="pr">$</span> <span class="cmd">git clone https://github.com/assmmsto/GAK.git</span></div>
+            <div class="ln"><span class="pr">$</span> <span class="cmd">cd GAK</span></div>
+            <div class="ln"><span class="pr">$</span> <span class="cmd">npm install</span></div>
+            <div class="ln"><span class="pr">$</span> <span class="cmd">npm start</span></div>
+            <div class="ln"> </div>
+            <div class="ln out">  <span class="dim">▸</span> <b>http://localhost:3001</b></div>
+          </div>
+          <div class="terminal-foot">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>
+            <span>جاهز للاستخدام على <span class="mono" style="font-size:11px">127.0.0.1</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section class="section" id="faq">
+    <div class="wrap">
+      <div class="section-head" data-reveal>
+        <p class="eyebrow"><span class="idx">09</span><span class="bar"></span>الأسئلة</p>
+        <h2 class="h2">قبل أن تشغّله.</h2>
+      </div>
+
+      <div class="faq" data-reveal>
+        <details class="faq-item" open>
+          <summary><span class="q">01</span>هل أحتاج حساباً أو بطاقة بنكية؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">لا. البوابة تعمل محلياً بالكامل، ومزوّد بلا مفتاح مثل Pollinations يكفي لأول طلب. الحسابات والبطاقات تخصّ المزوّدين أنفسهم، لا GAK.</div>
+        </details>
+        <details class="faq-item">
+          <summary><span class="q">02</span>أين تُخزَّن مفاتيح المزوّدين؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">في <code>data/gateway.db</code> مشفّرة، لا في <code>.env</code>. ملف <code>.env</code> لإعدادات البيئة فقط. أي نسخة احتياطية يجب أن تضمّ القاعدة ومفتاح <code>data/.credkey</code>.</div>
+        </details>
+        <details class="faq-item">
+          <summary><span class="q">03</span>هل يعمل مع Claude Code وCursor؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">نعم. <code>/v1/messages</code> يخدم Claude Code وAnthropic SDK، و<code>/v1/chat/completions</code> يخدم أي عميل متوافق مع OpenAI — Cursor وCline وContinue وغيرها.</div>
+        </details>
+        <details class="faq-item">
+          <summary><span class="q">04</span>ماذا يحدث لو نفدت حصة مفتاح؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">يُحجز ذلك المفتاح وحده خمس دقائق، ويُجرَّب المفتاح التالي فوراً. لا ينتقل الموجّه إلى مزوّد آخر إلا بعد استنفاد كل مفاتيح المزوّد الحالي.</div>
+        </details>
+        <details class="faq-item">
+          <summary><span class="q">05</span>هل يمكن تشغيله على الشبكة المحلية؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">نعم، عبر <code>HOST=0.0.0.0</code> مع <code>ADMIN_TOKEN</code> إلزامي — وإلا يرفض الخادم الإقلاع. للوصول من خارج الشبكة أضف TLS وبروكسي عكسي.</div>
+        </details>
+        <details class="faq-item">
+          <summary><span class="q">06</span>هل هو جاهز للإنتاج؟<span class="plus"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-plus"/></svg></span></summary>
+          <div class="faq-a">v1.0.1 هو الإصدار العام الأول. اختبره على شبكة تثق بها، واحتفظ بنسخة من <code>data/</code>، واقرأ إخلاء المسؤولية في المستودع قبل توجيه حركة إنتاج حقيقية إليه.</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= CTA ================= -->
+  <section class="cta-section">
+    <div class="wrap">
+      <div class="cta" data-reveal>
+        <div>
+          <h2>جاهز؟ مفتاح واحد يفصلك عن كل النماذج.</h2>
+          <p>مفتوح المصدر، يعمل على جهازك، ويبدأ في دقيقة.</p>
+        </div>
+        <div class="cta-actions">
+          <a class="btn btn-primary" href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-github"/></svg>
+            استعرض المشروع
+          </a>
+          <span class="cmd-chip"><span class="d">$</span> npm start</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bolt"/></svg></span>
+          <span>
+            <span class="brand-name">GAK</span>
+            <span class="brand-tag">بوابة الذكاء الاصطناعي</span>
+          </span>
+        </a>
+        <p>بوابة موحّدة لمزوّدي الذكاء الاصطناعي: عنوان واحد، مفاتيح متعددة، وتبديل تلقائي — تعمل على جهازك.</p>
+        <span class="ver">v1.0.1 · MIT</span>
+      </div>
+      <div class="footer-col">
+        <h3>المنتج</h3>
+        <ul>
+          <li><a href="#features">المزايا</a></li>
+          <li><a href="#how">كيف يعمل</a></li>
+          <li><a href="#api">واجهة API</a></li>
+          <li><a href="#providers">المزوّدون</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>المصادر</h3>
+        <ul>
+          <li><a href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">GitHub</a></li>
+          <li><a href="https://github.com/assmmsto/GAK#readme" target="_blank" rel="noopener">README</a></li>
+          <li><a href="https://github.com/assmmsto/GAK/blob/main/RUN-GUIDE.md" target="_blank" rel="noopener">دليل التشغيل</a></li>
+          <li><a href="https://github.com/assmmsto/GAK/blob/main/CHANGELOG.md" target="_blank" rel="noopener">سجل التغييرات</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>القانون</h3>
+        <ul>
+          <li><a href="https://github.com/assmmsto/GAK/blob/main/SECURITY.md" target="_blank" rel="noopener">الأمان</a></li>
+          <li><a href="https://github.com/assmmsto/GAK/blob/main/LICENSE" target="_blank" rel="noopener">ترخيص MIT</a></li>
+          <li><a href="https://github.com/assmmsto/GAK#disclaimer" target="_blank" rel="noopener">إخلاء المسؤولية</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© <span id="year">2026</span> GAK · صُنع ليعمل على جهازك.</span>
+      <div class="right">
+        <a href="#security">الأمان</a>
+        <a href="https://github.com/assmmsto/GAK" target="_blank" rel="noopener">GitHub</a>
+        <a href="#top">إلى الأعلى ↑</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite">تم النسخ</div>
+
+<noscript>
+  <style>
+    [data-reveal] { opacity: 1; transform: none; }
+    .req-line, .req-json, .console-result, .attempt, .status { opacity: 1; transform: none; }
+  </style>
+</noscript>
+
+<script src="app.js" defer></script>
+</body>
+</html>
