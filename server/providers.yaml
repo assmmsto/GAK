@@ -1,0 +1,225 @@
+providers:
+  - id: inference
+    name: inference
+    baseUrl: https://inference.dahl.global/v1
+    format: openai
+    tier: 1
+    enabled: true
+    models:
+      - MiniMaxAI/MiniMax-M2.7
+      - deepseek-ai/DeepSeek-V4-Flash-0731
+      - zai-org/GLM-5.3-Flash
+    apiKeyEnv: INFERENCE_API_KEY
+    signupUrl: https://inference.dahl.global/
+  - id: google-ai
+    name: Google AI Studio
+    baseUrl: https://generativelanguage.googleapis.com/v1beta/openai
+    format: openai
+    tier: 3
+    enabled: true
+    models: auto
+    apiKeyEnv: GEMINI_API_KEY
+    signupUrl: https://aistudio.google.com/apikey
+  - id: openrouter
+    name: OpenRouter
+    baseUrl: https://openrouter.ai/api/v1
+    format: openai
+    tier: 2
+    enabled: true
+    models: auto
+    apiKeyEnv: OPENROUTER_API_KEY
+    signupUrl: https://openrouter.ai/keys
+  - id: groq
+    name: Groq Cloud
+    baseUrl: https://api.groq.com/openai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: GROQ_API_KEY
+    signupUrl: https://console.groq.com/keys
+  - id: mistral
+    name: Mistral AI
+    baseUrl: https://api.mistral.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: MISTRAL_API_KEY
+    signupUrl: https://console.mistral.ai/api-keys/
+  - id: nvidia-nim
+    name: NVIDIA NIM
+    baseUrl: https://integrate.api.nvidia.com/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: NVIDIA_API_KEY
+    signupUrl: https://build.nvidia.com/settings/api-keys
+  - id: xkiro
+    name: XKiro
+    baseUrl: https://api.xkiro.com/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: XKIRO_API_KEY
+    signupUrl: https://xkiro.com/ref/HYAJG6D
+  - id: seekai
+    name: SeekAI
+    baseUrl: https://seekai.cc/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: SEEKAI_API_KEY
+    signupUrl: https://seekai.cc
+  - id: apmix
+    name: apmix
+    baseUrl: https://api.apmix.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: APMIX_API_KEY
+    signupUrl: https://apmix.ai/register
+  - id: tokenharbor
+    name: TokenHarbor
+    baseUrl: https://tokenharbor.ai/v1
+    format: openai
+    tier: 2
+    enabled: true
+    models: auto
+    apiKeyEnv: TOKENHARBOR_API_KEY
+    signupUrl: https://tokenharbor.ai/dashboard
+  - id: anyrouter
+    name: AnyRouter
+    baseUrl: https://anyrouter.dev/v1
+    format: openai
+    tier: 2
+    enabled: true
+    models: auto
+    apiKeyEnv: ANYROUTER_API_KEY
+    signupUrl: https://anyrouter.dev/sign-up?ref=ELK5U4T3
+  - id: inception
+    name: Inception Labs (Mercury)
+    baseUrl: https://api.inceptionlabs.ai/v1
+    format: openai
+    tier: 3
+    enabled: true
+    models: auto
+    apiKeyEnv: INCEPTION_API_KEY
+    signupUrl: https://www.inceptionlabs.ai
+  - id: agentrouter
+    name: AgentRouter
+    baseUrl: https://agentrouter.org/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: AGENTROUTER_API_KEY
+    signupUrl: https://agentrouter.org
+  - id: unikey
+    name: UniKey
+    baseUrl: https://www.getunikey.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: UNIKEY_API_KEY
+    signupUrl: https://www.getunikey.ai/sign-up?aff=t5yO
+  - id: anymodel
+    name: AnyModel
+    baseUrl: https://anymodel.org/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: ANYMODEL_API_KEY
+    signupUrl: https://anymodel.org
+  - id: freeaiapikey
+    name: FreeAIAPIKey
+    baseUrl: https://api.freeaiapikey.com/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: FREEAIAPIKEY_API_KEY
+    signupUrl: https://freeaiapikey.com/r/9SQF3ZQE
+  - id: tokenrouter
+    name: TokenRouter
+    baseUrl: https://api.tokenrouter.com/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: TOKENROUTER_API_KEY
+    signupUrl: https://www.tokenrouter.com
+  - id: evolink
+    name: Evolink
+    baseUrl: https://api.evolink.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: EVOLINK_API_KEY
+    signupUrl: https://evolink.ai
+  - id: bai
+    name: B.AI
+    baseUrl: https://api.b.ai/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models: auto
+    apiKeyEnv: BAI_API_KEY
+    signupUrl: https://b.ai
+  - id: oxionai
+    name: oxionai
+    baseUrl: https://oxionai.com/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models:
+      - glm-5.2
+      - glm-5.3
+      - seed-2.1-pro
+      - deepseek-v4-pro-max
+      - claude-opus-5.5
+      - claude-opus-5
+      - claude-mythos-preview
+      - gpt-5.6-sol
+      - claude-sonnet-5
+      - gpt-5.5-pro
+      - qwen3.7-max
+      - gemini-3.7-flash
+      - grok-4.6
+    apiKeyEnv: OXIONAI_API_KEY
+    signupUrl: https://oxionai.com
+  - id: coarena
+    name: coarena
+    baseUrl: https://coarena.ai/api/v1
+    format: openai
+    tier: 4
+    enabled: true
+    models:
+      - claude-fable-5
+      - claude-haiku-5-5
+      - deepseek-v4-1-flash-1017
+      - hy4
+      - kimi-k3-1-pro
+      - minimax-m3-1-flash
+    apiKeyEnv: COARENA_API_KEY
+    signupUrl: https://coarena.ai
+  - id: numes
+    name: Numes
+    baseUrl: https://api.numes.ai/api/v1
+    format: openai
+    tier: 2
+    enabled: true
+    models: auto
+    apiKeyEnv: NUMES_API_KEY
+    signupUrl: https://numes.ai
+routing:
+  maxRetries: 3
+  timeoutMs: 180000
+  maxConcurrent: 20

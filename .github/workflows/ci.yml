@@ -1,0 +1,37 @@
+# ci — بوابة أي تغيير في المخزن: الأسرار + الأنواع + حراس الاختبار + البناء الإنتاجي.
+# أبسط ما يفي: خطوة على كل push للفروع وpull_request، بلا matrices ولا artifacts.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"] # دفع الوسم لا يحتاج تشغيلاً مكرراً على نفس الالتزام
+  pull_request:
+  workflow_dispatch: # تشغيل يدوي من تبويب Actions عند الحاجة
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # فحص الأسرار يلزمه التاريخ كاملاً لا commit واحداً
+
+      # سرّ يُرفع ثم يُحذف يبقى في التاريخ ويُقرأ للأبد — الفحص على كل تغيير.
+      # GITLEAKS_CONFIG إلزامي: بدونه يُطبِّق gitleaks قواعده الافتراضية وحدها،
+      # فيهاجم قالب `.env.example` (أسماء متغيّرات بلا قيم) كأنه مفتاح مسرَّب.
+      - name: فحص الأسرار في التاريخ
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
